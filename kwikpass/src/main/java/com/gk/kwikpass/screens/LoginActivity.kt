@@ -1,6 +1,7 @@
 package com.gk.kwikpass
 
 import LoginViewModel
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
+import com.gk.kwikpass.api.KwikPassHttpClient
 import com.gk.kwikpass.screens.login.ImageSource
 import com.gk.kwikpass.screens.login.LoginHeader
 import com.gk.kwikpass.screens.login.LoginScreen
@@ -39,6 +41,7 @@ class LoginActivity : ComponentActivity() {
     private val loginViewModel: LoginViewModel by viewModels()
     private val verifyViewModel: VerifyViewModel by viewModels()
 
+    @SuppressLint("UnrememberedMutableState")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
