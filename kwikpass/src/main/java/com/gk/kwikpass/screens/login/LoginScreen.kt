@@ -24,6 +24,7 @@ fun LoginScreen(
     onSubmit: () -> Unit,
     onPhoneChange: (String) -> Unit,
     title: String? = null,
+    subTitle: String? = null,
     errors: Map<String, String> = emptyMap(),
     submitButtonText: String = "Continue",
     isLoading: Boolean = false,
@@ -38,13 +39,21 @@ fun LoginScreen(
         modifier = modifier
             .fillMaxWidth()
             .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Title
         title?.let {
             Text(
                 text = it,
                 fontSize = 20.sp,
+                color = Color.Black
+            )
+        }
+
+        subTitle?.let {
+            Text(
+                text = it,
+                fontSize = 18.sp,
                 color = Color.Black
             )
         }

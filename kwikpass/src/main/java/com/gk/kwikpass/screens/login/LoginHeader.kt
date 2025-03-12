@@ -22,23 +22,23 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.screens.login.ui.theme.KwikpassTheme
-
-// Data class to handle both local and network images
-data class ImageSource(
-    val localResourceId: Int? = null,
-    val networkUrl: String? = null
-)
 
 @Composable
 fun LoginHeader(
-    logo: ImageSource? = null,
-    bannerImage: ImageSource? = null,
+    logo: String? = null,
+    bannerImage: String? = null,
     enableGuestLogin: Boolean = false,
     guestLoginButtonLabel: String = "Skip",
     onGuestLoginClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+
+    var appContext = ApplicationCtx.get()
+
+    println(" EXAMPLE DRAWABLE ${appContext.resources.getIdentifier(logo,"drawable",appContext.packageName)}")
+
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.TopCenter
@@ -53,16 +53,16 @@ fun LoginHeader(
             ) {
                 when {
                     bannerImage != null -> {
-                        if (bannerImage.networkUrl != null) {
+                        if (bannerImage.startsWith("http")) {
                             AsyncImage(
-                                model = bannerImage.networkUrl,
+                                model = bannerImage,
                                 contentDescription = "Banner Image",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
-                        } else if (bannerImage.localResourceId != null) {
+                        } else  {
                             Image(
-                                painter = painterResource(id = bannerImage.localResourceId),
+                                painter = painterResource(id = appContext.resources.getIdentifier(bannerImage, "drawable", appContext.packageName)),
                                 contentDescription = "Banner Image",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -76,16 +76,17 @@ fun LoginHeader(
                                 .height(80.dp), // 40% of 200dp
                             contentAlignment = Alignment.Center
                         ) {
-                            if (logo.networkUrl != null) {
+                            if (logo.startsWith("http")) {
                                 AsyncImage(
-                                    model = logo.networkUrl,
+                                    model = logo,
                                     contentDescription = "Logo",
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Fit
                                 )
-                            } else if (logo.localResourceId != null) {
+                            } else  {
+
                                 Image(
-                                    painter = painterResource(id = logo.localResourceId),
+                                    painter = painterResource(id = appContext.resources.getIdentifier(logo,"drawable",appContext.packageName)),
                                     contentDescription = "Logo",
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Fit
@@ -126,8 +127,8 @@ fun LoginHeader(
 fun LoginHeaderPreview() {
     KwikpassTheme {
         LoginHeader(
-            logo = ImageSource(networkUrl = "https://cdn.freebiesupply.com/logos/large/2x/puma-3-logo-png-transparent.png"),
-            bannerImage = ImageSource(networkUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTJOpmCDZYo06eSxeL-dqddnW4xIMu26haXoA&s"),
+            logo = null,
+            bannerImage = null,
             enableGuestLogin = true,
             guestLoginButtonLabel = "Skip",
             onGuestLoginClick = {}

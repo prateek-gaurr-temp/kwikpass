@@ -159,6 +159,7 @@ class KwikPassApi(private val context: Context) {
             cache.setValue(KwikPassKeys.GK_USER_PHONE, phoneNumber)
 
             val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber))
+                println("")
             if (response?.isSuccessful == true) {
                 return Result.success(response.body()!!)
             }

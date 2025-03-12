@@ -1,6 +1,7 @@
 package com.gk.kwikpass.initializer
 
 import android.content.Context
+import com.gk.kwikpass.snowplow.SnowplowClient
 import com.gk.kwikpass.utils.AppUtils
 
 object kwikpassInitializer {
@@ -34,7 +35,6 @@ object kwikpassInitializer {
         println("Environment: $environment")
         println("Snowplow Tracking: $isSnowplowTrackingEnabled")
 
-        // You can add more setup logic here (e.g., logging, network setup)
     }
 
     fun getMerchantId(): String? = merchantId

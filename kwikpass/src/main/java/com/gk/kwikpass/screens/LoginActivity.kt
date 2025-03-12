@@ -28,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import com.gk.kwikpass.api.KwikPassHttpClient
-import com.gk.kwikpass.screens.login.ImageSource
 import com.gk.kwikpass.screens.login.LoginHeader
 import com.gk.kwikpass.screens.login.LoginScreen
 import com.gk.kwikpass.screens.verify.VerifyScreen
@@ -87,8 +86,8 @@ class LoginActivity : ComponentActivity() {
                             .verticalScroll(scrollState)
                     ) {
                         LoginHeader(
-                            logo = ImageSource(networkUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZB1ejyZyAZUGZMPEFq4iHD4YVmlAO7TbUkQ&s"),
-                            bannerImage = ImageSource(networkUrl = "https://wiki.hollywoodinpixels.org/images/2/20/Placeholder-Banner.gif"),
+//                            logo = ImageSource(networkUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZB1ejyZyAZUGZMPEFq4iHD4YVmlAO7TbUkQ&s"),
+//                            bannerImage = ImageSource(networkUrl = "https://wiki.hollywoodinpixels.org/images/2/20/Placeholder-Banner.gif"),
                             enableGuestLogin = true,
                             guestLoginButtonLabel = "Skip",
                             onGuestLoginClick = { /* Handle skip */ }
