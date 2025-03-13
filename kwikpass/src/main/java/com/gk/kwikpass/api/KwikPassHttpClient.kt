@@ -1,60 +1,59 @@
 package com.gk.kwikpass.api
 
 import com.gk.kwikpass.config.KwikPassConfig
+import com.gk.kwikpass.config.KwikPassKeys
 import com.gk.kwikpass.utils.AppUtils
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
 
 object KwikPassHttpClient {
-    private var gokwikHttpClient: Retrofit? = null
+    private var retrofit: Retrofit? = null
     private var okHttpClient: OkHttpClient? = null
 
-    fun initializeHttpClient(environment: String) {
-        if (gokwikHttpClient != null) return
-       
+    fun getClient(environment: String, mid: String): Retrofit {
+        if (retrofit == null) {
+            retrofit = createRetrofit(environment, mid)
+        }
+        return retrofit!!
+    }
+
+    private fun createRetrofit(environment: String, mid: String): Retrofit {
         val config = KwikPassConfig.getConfig(environment)
-
-
         val appVersion = AppUtils.getHostAppVersion()
-        println("APP VERSION $appVersion")
 
+        // Create logging interceptor
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+
+        // Create header interceptor
+        val headerInterceptor = Interceptor { chain ->
+            val originalRequest = chain.request()
+            val requestWithHeader = originalRequest.newBuilder()
+                .header("accept", "*/*")
+                .header("appplatform", "android")
+                .header("appversion", appVersion)
+                .header("source", "android-app")
+                .header(KwikPassKeys.GK_MERCHANT_ID, mid.toString())
+                .build()
+            chain.proceed(requestWithHeader)
+        }
+
+        // Create OkHttpClient with timeouts and interceptors
         okHttpClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                val original = chain.request()
-                val builder = original.newBuilder()
-
-                // Add common headers matching React Native implementation
-                builder.header("accept", "*/*")
-                builder.header("appplatform", "android")
-                builder.header("appversion", appVersion)
-                builder.header("source", "android-app")
-
-                chain.proceed(builder.build())
-            }
+            .addInterceptor(loggingInterceptor)
+            .addInterceptor(headerInterceptor)
             .build()
 
-        gokwikHttpClient = Retrofit.Builder()
-            .baseUrl(config.baseUrl)
+        return Retrofit.Builder()
+            .baseUrl(config?.baseUrl.toString())
             .client(okHttpClient!!)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-    }
-
-    fun getHttpClient(environment: String? = null): Retrofit {
-        if (gokwikHttpClient == null) {
-            if (environment == null) {
-                throw IllegalStateException(
-                    "HTTP client not initialized. Please call initializeHttpClient first or provide environment."
-                )
-            }
-            initializeHttpClient(environment)
-        }
-        return gokwikHttpClient!!
-    }
-
-    inline fun <reified T> createService(environment: String? = null): T {
-        return getHttpClient(environment).create(T::class.java)
     }
 
     fun setHeaders(headers: Map<String, String>) {
@@ -63,20 +62,12 @@ object KwikPassHttpClient {
             .addInterceptor { chain ->
                 val original = chain.request()
                 val builder = original.newBuilder()
-
-                // Add all headers
                 headers.forEach { (key, value) ->
                     builder.header(key, value)
                 }
-
                 chain.proceed(builder.build())
             }
             .build()
-
-        // Rebuild Retrofit with new client
-        gokwikHttpClient = gokwikHttpClient?.newBuilder()
-            ?.client(okHttpClient!!)
-            ?.build()
     }
 
     fun clearHeaders() {
@@ -85,17 +76,13 @@ object KwikPassHttpClient {
             .addInterceptor { chain ->
                 val original = chain.request()
                 val builder = original.newBuilder()
-
-                // Only keep the accept header
                 builder.header("accept", "*/*")
-
                 chain.proceed(builder.build())
             }
             .build()
+    }
 
-        // Rebuild Retrofit with new client
-        gokwikHttpClient = gokwikHttpClient?.newBuilder()
-            ?.client(okHttpClient!!)
-            ?.build()
+    inline fun <reified T> createService(environment: String, mid: String): T {
+        return getClient(environment, mid).create(T::class.java)
     }
 }

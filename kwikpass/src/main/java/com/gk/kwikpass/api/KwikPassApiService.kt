@@ -5,8 +5,12 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Body
+import retrofit2.http.Header
+import retrofit2.http.Headers
 
 interface KwikPassApiService {
+
+
     @GET("auth/browser")
     suspend fun getBrowserAuth(): Response<BrowserAuthResponse>
 
@@ -14,7 +18,7 @@ interface KwikPassApiService {
     suspend fun getMerchantConfig(@Path("mid") mid: String): Response<MerchantConfigResponse>
 
     @POST("auth/otp/send")
-    suspend fun sendVerificationCode(@Body body: SendVerificationCodeRequest): Response<OtpSentResponse>
+    suspend fun sendVerificationCode(@Body body: SendVerificationCodeRequest, @Header("Authorization") authToken: String, @Header("gk-request-id") requestId: String, @Header("kp-request-id") kpRequestId: String ): Response<OtpSentResponse>
 
     @GET("customer/custom/login")
     suspend fun loginKpUser(): Response<LoginResponse>

@@ -273,6 +273,7 @@ class KwikpassLoginFragment : Fragment() {
                     println("NOTIFI $notifications")
                     loginViewModel.setLoading(true)
                     val result = kwikPassApi.sendVerificationCode(phone, notifications)
+                    println("RESULT FROM API $result")
                     result.onSuccess {
                         formViewModel.setOtpSent(true)
                         showVerifyScreen = true

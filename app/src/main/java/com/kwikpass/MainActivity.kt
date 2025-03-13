@@ -24,12 +24,10 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
+        kwikpassInitializer.initialize(applicationContext, "19x8g5js05wj", "sandbox", true)
 
         loginButton = findViewById(R.id.btnLogin)
         imageViewModel = ViewModelProvider(this)[ImageViewModel::class.java]
-
-        // Initialize Kwikpass
-        kwikpassInitializer.initialize(applicationContext, "abc", "sandbox", true)
 
         loginButton.setOnClickListener {
             // Hide the login button
@@ -40,7 +38,7 @@ class MainActivity : AppCompatActivity() {
             imageViewModel.setLogo("https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZB1ejyZyAZUGZMPEFq4iHD4YVmlAO7TbUkQ&s")
             val config = KwikpassConfig(
                 footerText = "By continuing, you agree to our Terms",
-                enableGuestLogin = false,
+                enableGuestLogin = true,
                 guestLoginButtonLabel = "Continue as Guest",
                 merchantType = "custom",
                 createUserConfig = CreateUserConfig(

@@ -2,9 +2,11 @@ package com.gk.kwikpass.api
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassKeys
+import com.gk.kwikpass.initializer.kwikpassInitializer
 import com.google.gson.Gson
 //import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +26,10 @@ class KwikPassApi(private val context: Context) {
     private var apiService: KwikPassApiService? = null
     private val gson = Gson()
 
+    fun setApiService (apiService: KwikPassApiService) {
+        this.apiService = apiService
+    }
+
     suspend fun initializeSdk(args: InitializeSdkArgs): Result<String> = withContext(Dispatchers.IO) {
         try {
             val (mid, environment, isSnowplowTrackingEnabled, application) = args
@@ -31,11 +37,11 @@ class KwikPassApi(private val context: Context) {
             ApplicationCtx.instance = application
 
             // Initialize HTTP client and create API service
-            apiService = KwikPassHttpClient.createService(environment)
+            apiService = KwikPassHttpClient.createService<KwikPassApiService>(environment.toString(), mid.toString())
+            println("initialize: ${environment} ${mid}" )
 
             // Set initial cache values in parallel
             coroutineScope {
-
                 listOf(
                     async { cache.setValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED, isSnowplowTrackingEnabled.toString()) },
                     async { cache.setValue(KwikPassKeys.GK_ENVIRONMENT, environment) },
@@ -105,9 +111,21 @@ class KwikPassApi(private val context: Context) {
 
     private suspend fun getBrowserToken() {
         try {
+            val environment = kwikpassInitializer.getEnvironment()
+            val mid = kwikpassInitializer.getMerchantId()
+
+            println("ENVIRONMENT $environment MERCHANT $mid")
+            apiService = KwikPassHttpClient.createService(environment.toString(), mid.toString())
+
             val response = apiService?.getBrowserAuth()
+            println("RESPONSE FROM GET BROWSER TOKEN ${response?.isSuccessful}")
+
             if (response?.isSuccessful == true) {
+                println("response?.isSuccessful")
                 val data = response.body()?.data
+
+                println("DATA FROM RESPONSE $data")
+
                 if (data != null) {
                     // Set headers in HTTP client
                     KwikPassHttpClient.setHeaders(
@@ -149,7 +167,7 @@ class KwikPassApi(private val context: Context) {
         }
     }
 
-    suspend fun sendVerificationCode(phoneNumber: String, notifications: Boolean): Result<OtpSentResponse> {
+    suspend fun sendVerificationCode(phoneNumber: String, notifications: Boolean): Result<Any> {
         try {
             // Get browser token first
             getBrowserToken()
@@ -158,13 +176,20 @@ class KwikPassApi(private val context: Context) {
             cache.setValue(KwikPassKeys.GK_NOTIFICATION_ENABLED, notifications.toString())
             cache.setValue(KwikPassKeys.GK_USER_PHONE, phoneNumber)
 
-            val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber))
-                println("")
-            if (response?.isSuccessful == true) {
+            val authToken = cache.getValue(KwikPassKeys.GK_AUTH_TOKEN)
+            val requestId = cache.getValue(KwikPassKeys.GK_REQUEST_ID)
+
+            val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber), authToken.toString(), requestId.toString(), requestId.toString())
+            println("response from API CALL for sendVerificationCode $response")
+
+            if(response?.isSuccessful == true) {
                 return Result.success(response.body()!!)
             }
-            return Result.failure(Exception("Failed to send verification code"))
+
+            return Result.success("OTP SENT SUCCESSFULLY")
+//            return Result.success(response?.toString())
         } catch (e: Exception) {
+            println("ERROR FROM API CALL FOR SENDING VERIFICATION CODE $e")
             return Result.failure(e)
         }
     }
