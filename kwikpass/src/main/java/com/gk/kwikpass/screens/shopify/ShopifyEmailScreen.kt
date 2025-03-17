@@ -20,6 +20,7 @@ fun ShopifyEmailScreen(
     isLoading: Boolean = false,
     errors: Map<String, String> = emptyMap(),
     title: String = "Submit your details",
+    subTitle: String? = null,
     emailPlaceholder: String = "Enter your email",
     submitButtonText: String = "Submit"
 ) {
@@ -36,6 +37,14 @@ fun ShopifyEmailScreen(
             fontSize = 20.sp,
             color = Color.Black
         )
+
+        subTitle?.let {
+            Text(
+                text = it,
+                fontSize = 18.sp,
+                color = Color.Black
+            )
+        }
 
         // Email field
         Column {

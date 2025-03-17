@@ -10,6 +10,8 @@ import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassKeys
 import com.gk.kwikpass.snowplow.SnowplowClient
 import com.gk.kwikpass.utils.AppUtils
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 object kwikpassInitializer {
     private var merchantId: String? = null
@@ -20,7 +22,7 @@ object kwikpassInitializer {
     private lateinit var kwikPassApi: KwikPassApi
 
 
-    fun initialize(
+    suspend fun initialize(
         context: Context,
         merchantId: String,
         environment: String,
@@ -36,15 +38,46 @@ object kwikpassInitializer {
         this.isSnowplowTrackingEnabled = isSnowplowTrackingEnabled
 
 
-//        cache.setValue(KwikPassKeys.GK_MERCHANT_ID, merchantId))
+         cache.setValue(KwikPassKeys.GK_MERCHANT_ID, merchantId)
+        // Initialize HTTP client and get API service
+        apiService = KwikPassHttpClient.getApiService(environment, merchantId)
+        val response = apiService?.getBrowserAuth()
+        if (response?.isSuccessful == true) {
+            println("response?.isSuccessful")
+            val data = response.body()?.data
 
-        // Initialize HTTP client and create API service
-       // apiService = KwikPassHttpClient.createService(environment, merchantId)
-        println("initialize: ${environment} ${merchantId}" )
-        apiService = KwikPassHttpClient.createService(environment.toString(), merchantId.toString())
+            println("DATA FROM RESPONSE $data")
 
-        kwikPassApi = KwikPassApi(context)
-        kwikPassApi.setApiService(apiService!!)
+            if (data != null) {
+                // Set headers in HTTP client
+               KwikPassHttpClient.setHeaders(
+                    mapOf(
+                        KwikPassKeys.GK_REQUEST_ID to data.requestId,
+                        KwikPassKeys.KP_REQUEST_ID to data.requestId,
+                        "Authorization" to data.token
+                    )
+               )
+
+                // Set cache values in parallel
+                coroutineScope {
+                    listOf(
+                        async { cache.setValue(KwikPassKeys.GK_REQUEST_ID, data.requestId) },
+                        async { cache.setValue(KwikPassKeys.KP_REQUEST_ID, data.requestId) },
+                        async { cache.setValue(KwikPassKeys.GK_AUTH_TOKEN, data.token) }
+                    ).map { it.await() }
+                }
+            }
+        }
+
+        val apiresponse = apiService?.getMerchantConfig(merchantId.toString())
+
+        if (apiresponse?.isSuccessful == true) {
+            println("response?.isSuccessful")
+            val data = apiresponse.body()?.data
+            data?.platform?.toString()
+                ?.let { cache.setValue(KwikPassKeys.GK_MERCHANT_TYPE, it.toLowerCase()) }
+            cache.setValue(KwikPassKeys.GK_MERCHANT_CONFIG, data.toString())
+        }
 
         val appVersion = AppUtils.getHostAppVersion()
         println("APP VERSION $appVersion")

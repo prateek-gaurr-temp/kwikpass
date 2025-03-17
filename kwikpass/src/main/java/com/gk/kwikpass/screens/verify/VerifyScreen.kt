@@ -38,6 +38,7 @@ fun VerifyScreen(
     onResend: () -> Unit,
     otpLabel: String,
     title: String = "OTP Verification",
+    subTitle: String? = null,
     submitButtonText: String = "Verify",
     uiState: VerifyUiState,
     onOtpChange: (String) -> Unit,
@@ -59,6 +60,14 @@ fun VerifyScreen(
             color = Color.Black,
             fontWeight = FontWeight.Medium
         )
+
+        subTitle?.let {
+            Text(
+                text = it,
+                fontSize = 18.sp,
+                color = Color.Black
+            )
+        }
 
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -103,7 +112,7 @@ fun VerifyScreen(
                 .fillMaxWidth()
                 .height(50.dp)
                 .padding(top = 2.dp),
-            enabled = !uiState.isLoading,
+            enabled = true,
             shape = RoundedCornerShape(6.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF007AFF)

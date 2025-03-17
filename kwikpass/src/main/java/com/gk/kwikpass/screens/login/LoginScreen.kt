@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 fun LoginScreen(
     onSubmit: () -> Unit,
     onPhoneChange: (String) -> Unit,
+    onNotificationsChange: (Boolean) -> Unit,
     title: String? = null,
     subTitle: String? = null,
     errors: Map<String, String> = emptyMap(),
@@ -30,15 +31,17 @@ fun LoginScreen(
     isLoading: Boolean = false,
     placeholderText: String = "Enter your phone",
     updateText: String = "Get updates on WhatsApp",
+    initialPhoneNumber: String = "",
+    initialNotifications: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    var phoneNumber by remember { mutableStateOf("") }
-    var notifications by remember { mutableStateOf(false) }
+    var phoneNumber by remember { mutableStateOf(initialPhoneNumber) }
+    var notifications by remember { mutableStateOf(initialNotifications) }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Title
@@ -73,19 +76,32 @@ fun LoginScreen(
                         .fillMaxWidth()
                         .border(
                             width = 1.dp,
-                            color = if (errors["phone"] != null) Color.Red else Color.Gray,
+                            color = if (errors["phone"] != null && errors["phone"]?.isNotEmpty() == true) Color.Red else Color.Black,
                             shape = RoundedCornerShape(8.dp)
                         ),
-                    placeholder = { Text(placeholderText, color = Color.Gray) },
+                    placeholder = { 
+                        Text(
+                            text = placeholderText, 
+                            color = Color.Gray.copy(alpha = 0.6f)
+                        ) 
+                    },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
                     enabled = !isLoading,
                     colors = TextFieldDefaults.colors(
                         unfocusedContainerColor = Color.Transparent,
                         focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent
+                        focusedIndicatorColor = Color.Transparent,
+                        disabledTextColor = Color.Black,
+                        disabledContainerColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        disabledPlaceholderColor = Color.Gray.copy(alpha = 0.6f),
+                        cursorColor = Color(0xFF007AFF)
                     ),
-                    textStyle = TextStyle(fontSize = 18.sp)
+                    textStyle = TextStyle(
+                        fontSize = 18.sp,
+                        color = Color.Black
+                    )
                 )
 
                 // Error message
@@ -107,8 +123,11 @@ fun LoginScreen(
             modifier =  Modifier
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null  // This removes the ripple effect
-                ) { notifications = !notifications }
+                    indication = null
+                ) { 
+                    notifications = !notifications
+                    onNotificationsChange(notifications)
+                }
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -147,7 +166,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading,
+            enabled = true,  // Always keep button enabled
             shape = RoundedCornerShape(6.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF007AFF)

@@ -3,6 +3,7 @@ package com.gk.kwikpass.api
 import android.app.Application
 import android.content.Context
 import android.util.Log
+import com.gk.kwikpass.api.shopify.KwikpassShopify
 import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassKeys
@@ -13,6 +14,21 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import retrofit2.HttpException
+import retrofit2.Response
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
+import java.net.URLEncoder
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+
+data class ApiErrorResponse(
+    val message: String,
+    val requestId: String = "N/A",
+    val result: Boolean = false,
+    val errorCode: Int? = null,
+    val response: Response<*>? = null
+)
 
 data class InitializeSdkArgs(
     val mid: String,
@@ -26,8 +42,39 @@ class KwikPassApi(private val context: Context) {
     private var apiService: KwikPassApiService? = null
     private val gson = Gson()
 
-    fun setApiService (apiService: KwikPassApiService) {
-        this.apiService = apiService
+    private fun handleApiError(error: Throwable): ApiErrorResponse {
+        return when (error) {
+            is retrofit2.HttpException -> {
+                val response = error.response()
+                val errorBody = response?.errorBody()?.string()
+                val errorData = try {
+                    gson.fromJson(errorBody, Map::class.java)
+                } catch (e: Exception) {
+                    null
+                }
+                
+                val message = when {
+                    errorData?.get("error") != null -> errorData["error"].toString()
+                    errorData?.get("data")?.toString()?.contains("error") == true -> {
+                        val dataMap = gson.fromJson(errorData["data"].toString(), Map::class.java)
+                        dataMap["error"].toString()
+                    }
+                    else -> "Unexpected error with status: ${response?.code()}"
+                }
+
+                ApiErrorResponse(
+                    message = message,
+                    requestId = response?.headers()?.get("request-id") ?: "N/A",
+                    result = false,
+                    errorCode = response?.code(),
+                    response = response
+                )
+            }
+            else -> ApiErrorResponse(
+                message = error.message ?: "An unknown error occurred",
+                result = false
+            )
+        }
     }
 
     suspend fun initializeSdk(args: InitializeSdkArgs): Result<String> = withContext(Dispatchers.IO) {
@@ -115,7 +162,11 @@ class KwikPassApi(private val context: Context) {
             val mid = kwikpassInitializer.getMerchantId()
 
             println("ENVIRONMENT $environment MERCHANT $mid")
-            apiService = KwikPassHttpClient.createService(environment.toString(), mid.toString())
+            
+            // Get the API service from KwikPassHttpClient
+            if (apiService == null) {
+                apiService = KwikPassHttpClient.getApiService(environment.toString(), mid.toString())
+            }
 
             val response = apiService?.getBrowserAuth()
             println("RESPONSE FROM GET BROWSER TOKEN ${response?.isSuccessful}")
@@ -168,29 +219,21 @@ class KwikPassApi(private val context: Context) {
     }
 
     suspend fun sendVerificationCode(phoneNumber: String, notifications: Boolean): Result<Any> {
-        try {
-            // Get browser token first
+        return try {
             getBrowserToken()
-
-            // Set notification preference
             cache.setValue(KwikPassKeys.GK_NOTIFICATION_ENABLED, notifications.toString())
             cache.setValue(KwikPassKeys.GK_USER_PHONE, phoneNumber)
 
-            val authToken = cache.getValue(KwikPassKeys.GK_AUTH_TOKEN)
-            val requestId = cache.getValue(KwikPassKeys.GK_REQUEST_ID)
-
-            val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber), authToken.toString(), requestId.toString(), requestId.toString())
-            println("response from API CALL for sendVerificationCode $response")
-
+            val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber))
             if(response?.isSuccessful == true) {
-                return Result.success(response.body()!!)
+                Result.success(response.body()!!)
+            } else {
+                val error = handleApiError(retrofit2.HttpException(response!!))
+                Result.failure(Exception(error.message))
             }
-
-            return Result.success("OTP SENT SUCCESSFULLY")
-//            return Result.success(response?.toString())
         } catch (e: Exception) {
-            println("ERROR FROM API CALL FOR SENDING VERIFICATION CODE $e")
-            return Result.failure(e)
+            val error = handleApiError(e)
+            Result.failure(Exception(error.message))
         }
     }
 
@@ -252,60 +295,160 @@ class KwikPassApi(private val context: Context) {
         }
     }
 
-    suspend fun verifyCode(phoneNumber: String, code: String): Result<VerifyCodeResponse> {
-        try {
+    suspend fun verifyCode(phoneNumber: String, code: String): Result<Any> {
+        return try {
+            getBrowserToken()
+            
             val response = apiService?.verifyCode(VerifyCodeRequest(phoneNumber, code.toInt()))
             if (response?.isSuccessful == true) {
                 val data = response.body()?.data
                 if (data != null) {
-                    // Handle Shopify specific logic
+                    // Send Snowplow event
+//                    sendCustomEventToSnowPlow(
+//                        category = "login_screen",
+//                        action = "logged_in",
+//                        label = "otp_verified",
+//                        property = "kwik_pass",
+//                        value = phoneNumber.toLong()
+//                    )
+
                     val merchantType = cache.getValue(KwikPassKeys.GK_MERCHANT_TYPE)
+                    println("MERCHANT TYPE AT TIME OF VERIFY CODE $merchantType")
+                    // Handle Shopify merchant type
                     if (merchantType == "shopify") {
-                        // Handle Shopify specific token and core token
-                        data.token?.let {
-                            KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.GK_ACCESS_TOKEN to it))
-                            cache.setValue(KwikPassKeys.GK_ACCESS_TOKEN, it)
+                        // Set access token
+                        data.token?.let { token ->
+                            KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.GK_ACCESS_TOKEN to token))
+                            cache.setValue(KwikPassKeys.GK_ACCESS_TOKEN, token)
+                            data.token = null
                         }
-                        data.coreToken?.let {
-                            KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.CHECKOUT_ACCESS_TOKEN to it))
-                            cache.setValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN, it)
+
+                        // Set core token
+                        data.coreToken?.let { coreToken ->
+                            KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.CHECKOUT_ACCESS_TOKEN to coreToken))
+                            cache.setValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN, coreToken)
+                            data.coreToken = null
+                        }
+
+                        // Set KP token
+                        data.kpToken?.let { kpToken ->
+                            cache.setValue(KwikPassKeys.GK_KP_TOKEN, kpToken)
+                            data.kpToken = null
                         }
 
                         // Get customer intelligence data
-                        val customerIntelligenceData = getCustomerIntelligence()
-                        if (customerIntelligenceData != null) {
-                            // Add customer intelligence data to response
-                            // This part needs to be implemented based on your specific needs
+//                        val customerIntelligenceData = getCustomerIntelligence()
+//                        if (customerIntelligenceData != null) {
+//                            data.affluence = customerIntelligenceData
+//                        }
+
+                        val shopify = KwikpassShopify()
+
+                        // Handle disabled state
+                        if (data.state == "DISABLED") {
+                            val multipassResult = shopify.getShopifyMultipassToken(
+                                phoneNumber,
+                                data.email,
+                                data.shopifyCustomerId,
+                                state = data.state
+                            )
+
+                            multipassResult.fold(
+                                onSuccess = { multipassResponse ->
+                                    // Handle account activation
+                                    multipassResponse.data?.let { shopifyData ->
+                                        val activationUrl = shopifyData.accountActivationUrl
+                                        val customerId = shopifyData.shopifyCustomerId
+                                        if (activationUrl != null && customerId != null) {
+                                            val accountActivationUrl = activationUrl.split("/")
+                                            val token = accountActivationUrl.last()
+                                            val url = extractDomain(activationUrl)
+
+                                            activateUserAccount(
+                                                customerId = customerId,
+                                                url = url,
+                                                password = shopifyData.password,
+                                                token = token
+                                            )
+                                        }
+                                    }
+                                    Result.success(multipassResponse)
+                                },
+                                onFailure = { e ->
+                                    Result.failure(e)
+                                }
+                            )
                         }
 
-                        // Handle Shopify specific state
-                        if (data.state == "DISABLED") {
-                            // Handle disabled state
-                            // This part needs to be implemented based on your specific needs
+                        println("EMAIL DATA PRESENT? ${data.email}")
+
+                        // Handle email exists case
+                        if (data.email != null) {
+                            val multipassResult = shopify.getShopifyMultipassToken(
+                                phoneNumber,
+                                data.email,
+                                data.shopifyCustomerId
+                            )
+
+                            println("MULTIPASS RESPONSE $multipassResult")
+
+                            multipassResult.fold(
+                                onSuccess = { multipassResponse ->
+                                    Result.success(multipassResponse)
+                                },
+                                onFailure = { e ->
+                                    Result.failure(e)
+                                }
+                            )
                         }
+
+                        // Store user data
+                        val userData = data.copy(phone = phoneNumber)
+                        cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(userData))
 
                         return Result.success(response.body()!!)
                     }
 
                     // Handle non-Shopify case
-                    data.token?.let {
-                        cache.setValue(KwikPassKeys.GK_ACCESS_TOKEN, it)
+                    data.token?.let { token ->
+                        cache.setValue(KwikPassKeys.GK_ACCESS_TOKEN, token)
+                        data.token = null
                     }
-                    data.coreToken?.let {
-                        cache.setValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN, it)
+                    data.coreToken?.let { coreToken ->
+                        cache.setValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN, coreToken)
+                        data.coreToken = null
                     }
+
+                    // Get customer intelligence data
+//                    val customerIntelligenceData = getCustomerIntelligence()
+//                    if (customerIntelligenceData != null) {
+//                        data.affluence = customerIntelligenceData
+//                    }
 
                     // Validate token and login user
                     validateUserToken()
-                    loginKpUser()
+                    val loginResponse = loginKpUser()
+                    loginResponse.onSuccess { response ->
+                        response.data?.merchantResponse?.email?.let {
+                            cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(response.data))
+                        }
+                    }
 
                     return Result.success(response.body()!!)
                 }
             }
-            return Result.failure(Exception("Failed to verify code"))
+            val error = handleApiError(HttpException(response!!))
+            Result.failure(Exception(error.message))
         } catch (e: Exception) {
-            return Result.failure(e)
+            val error = handleApiError(e)
+            Result.failure(Exception(error.message))
         }
+    }
+
+    private fun extractDomain(url: String?): String {
+        if (url == null) return ""
+        val regex = """^(?:https?://)?(?:www\.)?([^/]+)""".toRegex()
+        return regex.find(url)?.groupValues?.get(1) ?: ""
     }
 
     private suspend fun getCustomerIntelligence(): List<String>? {
@@ -394,5 +537,59 @@ class KwikPassApi(private val context: Context) {
 
     private fun getHostName(url: String): String {
         return url.replace(Regex("^(?:https?://)?(?:www\\.)?([^/]+).*$"), "$1")
+    }
+
+    private suspend fun activateUserAccount(
+        customerId: String?,
+        url: String,
+        password: String?,
+        token: String
+    ): Result<Any> = withContext(Dispatchers.IO) {
+        try {
+            if (customerId == null || password == null) {
+                return@withContext Result.failure(Exception("Missing required parameters"))
+            }
+
+            // Create form data similar to qs.stringify in React Native
+            val formData = mapOf(
+                "form_type" to "activate_customer_password",
+                "utf8" to "✓",
+                "customer[password]" to password,
+                "customer[password_confirmation]" to password,
+                "token" to token,
+                "id" to customerId
+            ).map { (key, value) -> 
+                "${key.encodeUrl()}=${value.encodeUrl()}"
+            }.joinToString("&")
+
+            // Create a custom OkHttp client for this specific request
+            val client = OkHttpClient.Builder()
+                .followRedirects(false) // equivalent to maxRedirects: 0
+                .build()
+
+            val request = Request.Builder()
+                .url("https://$url/account/activate")
+                .post(RequestBody.create(
+                    "application/x-www-form-urlencoded".toMediaTypeOrNull(),
+                    formData
+                ))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .build()
+
+            val response = client.newCall(request).execute()
+            
+            return@withContext if (response.isSuccessful) {
+                Result.success(response)
+            } else {
+                Result.failure(Exception("Failed to activate user account"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    // Helper function to URL encode parameters
+    private fun String.encodeUrl(): String {
+        return URLEncoder.encode(this, "UTF-8")
     }
 }

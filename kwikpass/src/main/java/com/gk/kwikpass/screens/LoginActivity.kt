@@ -157,7 +157,11 @@ class LoginActivity : ComponentActivity() {
                                                 // Trigger OTP send here
                                             }
                                         }
-                                    }
+                                    },
+                                    onNotificationsChange = { enabled ->
+                                        // Handle notifications change if needed in activity
+                                    },
+                                    initialNotifications = true
                                 )
                             }
                         }

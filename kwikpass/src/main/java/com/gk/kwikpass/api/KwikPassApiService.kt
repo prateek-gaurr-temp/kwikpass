@@ -18,7 +18,7 @@ interface KwikPassApiService {
     suspend fun getMerchantConfig(@Path("mid") mid: String): Response<MerchantConfigResponse>
 
     @POST("auth/otp/send")
-    suspend fun sendVerificationCode(@Body body: SendVerificationCodeRequest, @Header("Authorization") authToken: String, @Header("gk-request-id") requestId: String, @Header("kp-request-id") kpRequestId: String ): Response<OtpSentResponse>
+    suspend fun sendVerificationCode(@Body body: SendVerificationCodeRequest): Response<OtpSentResponse>
 
     @GET("customer/custom/login")
     suspend fun loginKpUser(): Response<LoginResponse>
@@ -34,6 +34,15 @@ interface KwikPassApiService {
 
     @GET("customer-intelligence")
     suspend fun getCustomerIntelligence(@Body params: Map<String, String>): Response<CustomerIntelligenceResponse>
+
+    @POST("customer/shopify/multipass")
+    suspend fun getShopifyMultipassToken(@Body body: ShopifyMultipassRequest): Response<ShopifyData>
+
+    @POST("auth/email-otp/send")
+    suspend fun sendShopifyEmailVerificationCode(@Body body: ShopifyEmailVerificationRequest): Response<ShopifyResponse>
+
+    @POST("auth/email-otp/verify")
+    suspend fun verifyShopifyEmail(@Body body: ShopifyEmailVerifyRequest): Response<ShopifyResponse>
 }
 
 // Request classes
@@ -161,13 +170,59 @@ data class VerifyCodeResponse(
 )
 
 data class VerifyCodeData(
-    val token: String?,
-    val coreToken: String?,
+    var token: String?,
+    var coreToken: String?,
     val state: String?,
-    val email: String?,
-    val shopifyCustomerId: String?
+    val email: String,
+    val password: String?,
+    val shopifyCustomerId: String?,
+    val multipleEmail: Boolean?,
+    val emailRequired: Boolean?,
+    val merchantResponse: Any?,
+    var phone: String?,
+    var customerIntelligence: Any?,
+    var kpToken: String?
 )
-
 data class CustomerIntelligenceResponse(
     val data: List<String>?
-) 
+)
+
+// Add Shopify Request/Response classes
+data class ShopifyMultipassRequest(
+    val id: String = "",
+    val email: String,
+    val redirectUrl: String = "/",
+    val isMarketingEventSubscribed: Boolean,
+    val state: String = "",
+    val skipEmailOtp: Boolean = false
+)
+
+data class ShopifyEmailVerificationRequest(
+    val email: String
+)
+
+data class ShopifyEmailVerifyRequest(
+    val email: String,
+    val otp: String,
+    val redirectUrl: String = "/",
+    val isMarketingEventSubscribed: Boolean
+)
+
+data class ShopifyResponse(
+    val data: ShopifyData
+)
+
+data class ShopifyData(
+    val data: ShopifyUserData?
+)
+
+data class ShopifyUserData(
+    var shopifyCustomerId: String? = null,
+    var phone: String? = null,
+    var email: String? = null,
+    var multipassToken: String? = null,
+    var password: String? = null,
+    var activationUrl: String? = null,
+    var accountActivationUrl: String? = null,
+    var state: String? = null
+)
