@@ -1,5 +1,9 @@
 package com.gk.kwikpass.screens.verify
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +21,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
@@ -30,6 +35,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.runtime.remember
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.gk.kwikpass.smsuserconsent.SmsUserConsentManager
 
 @Composable
 fun VerifyScreen(
@@ -42,8 +49,41 @@ fun VerifyScreen(
     submitButtonText: String = "Verify",
     uiState: VerifyUiState,
     onOtpChange: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewModel: VerifyViewModel = viewModel()
 ) {
+    val TAG = "VerifyScreen"
+    val context = LocalContext.current
+    val activity = context as Activity
+    val smsCode by viewModel.smsCode.collectAsState()
+
+    // Handle activity result for SMS consent
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        Log.d(TAG, "Activity result received - ResultCode: ${result.resultCode}")
+        viewModel.handleActivityResult(
+            SmsUserConsentManager.SMS_CONSENT_REQUEST,
+            result.resultCode,
+            result.data
+        )
+    }
+
+    // Initialize SMS manager when the screen is first created
+    LaunchedEffect(Unit) {
+        Log.d(TAG, "Initializing SMS manager")
+        viewModel.initializeSmsManager(activity, launcher)
+        viewModel.startSmsListener()
+    }
+
+    // Auto-verify when OTP is filled
+    LaunchedEffect(smsCode) {
+        if (smsCode.length == 4 && !uiState.isLoading) {
+            Log.d(TAG, "Auto-verifying OTP: $smsCode")
+            onOtpChange(smsCode)
+        }
+    }
+
     LaunchedEffect(Unit) {
         onResend()
     }
@@ -95,7 +135,8 @@ fun VerifyScreen(
             onOtpChange = onOtpChange,
             error = uiState.errors["otp"],
             enabled = !uiState.isLoading,
-            modifier = Modifier.padding(vertical = 2.dp)
+            modifier = Modifier.padding(vertical = 2.dp),
+            value = smsCode
         )
 
         ResendSection(
@@ -142,10 +183,10 @@ private fun OtpInput(
     onOtpChange: (String) -> Unit,
     error: String?,
     enabled: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    value: String = ""
 ) {
     val cellCount = 4
-    var otp by remember { mutableStateOf("") }
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val cellSize = with(LocalDensity.current) {
@@ -163,9 +204,9 @@ private fun OtpInput(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             repeat(cellCount) { index ->
-                val isFocused = otp.length == index
-                val char = otp.getOrNull(index)?.toString() ?: ""
-                val hasError = error != null && otp.length == cellCount
+                val isFocused = value.length == index
+                val char = value.getOrNull(index)?.toString() ?: ""
+                val hasError = error != null && value.length == cellCount
 
                 Box(
                     modifier = Modifier
@@ -198,10 +239,9 @@ private fun OtpInput(
         }
 
         BasicTextField(
-            value = otp,
+            value = value,
             onValueChange = { newValue ->
                 if (newValue.length <= cellCount && newValue.all { it.isDigit() }) {
-                    otp = newValue
                     onOtpChange(newValue)
                     if (newValue.length == cellCount) {
                         keyboard?.hide()

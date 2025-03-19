@@ -391,15 +391,15 @@ class KwikPassApi(private val context: Context) {
                             )
 
                             println("MULTIPASS RESPONSE $multipassResult")
-
-                            multipassResult.fold(
-                                onSuccess = { multipassResponse ->
-                                    Result.success(multipassResponse)
-                                },
-                                onFailure = { e ->
-                                    Result.failure(e)
-                                }
-                            )
+                            return Result.success(multipassResult)
+//                            multipassResult.fold(
+//                                onSuccess = { multipassResponse ->
+//                                    Result.success(multipassResponse)
+//                                },
+//                                onFailure = { e ->
+//                                    Result.failure(e)
+//                                }
+//                            )
                         }
 
                         // Store user data

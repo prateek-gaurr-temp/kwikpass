@@ -2,7 +2,6 @@ package com.kwikpass
 
 import android.os.Bundle
 import android.widget.Button
-import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -15,46 +14,25 @@ import com.gk.kwikpass.screens.PhoneAuthScreenConfig
 import com.gk.kwikpass.screens.KwikpassCallback
 import com.gk.kwikpass.screens.FooterUrl
 import android.view.View
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
-import com.gk.kwikpass.ImageViewModal.ImageViewModel
 import com.gk.kwikpass.screens.OtpVerificationScreenConfig
 import kotlinx.coroutines.launch
 import android.widget.Toast
-import android.graphics.Color
-import android.view.WindowManager
-import androidx.core.view.WindowCompat
+import com.gk.kwikpass.screens.ShopifyEmailScreenConfig
+import com.gk.kwikpass.screens.CreateUserScreenConfig
 
 class MainActivity : AppCompatActivity() {
     private lateinit var loginButton: Button
-    private lateinit var imageViewModel: ImageViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Configure window to be edge-to-edge
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        
-        // Make status bar transparent and set light icons
-        window.apply {
-            statusBarColor = Color.TRANSPARENT
-            setFlags(
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-            )
-        }
-        
-        // Set status bar icons to dark
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = true
-        }
-
         setContentView(R.layout.activity_main)
         
         // Initialize Kwikpass in a coroutine
         lifecycleScope.launch {
             try {
-                kwikpassInitializer.initialize(applicationContext, "19x8g5js05wj", "sandbox", true)
+                kwikpassInitializer.initialize(applicationContext, "19g6jle2d5p3n", "sandbox", true)
             } catch (e: Exception) {
                 Toast.makeText(
                     this@MainActivity,
@@ -66,7 +44,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         loginButton = findViewById(R.id.btnLogin)
-        imageViewModel = ViewModelProvider(this)[ImageViewModel::class.java]
 
         loginButton.setOnClickListener {
             // Hide the login button
@@ -75,42 +52,81 @@ class MainActivity : AppCompatActivity() {
                 //bannerImage = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTBol7C9SAVHfOvelDy48J7bHXHuz6CcGLhXA&s",
             val config = KwikpassConfig(
                 bannerImage = "example",
-                logo = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQZB1ejyZyAZUGZMPEFq4iHD4YVmlAO7TbUkQ&s",
+//                logo = "example",
                 footerText = "By continuing, you agree to our",
                 footerUrls = listOf(
                     FooterUrl(
-                        url = "https://google.com/",
+                        url = "https://example.com/privacy",
                         label = "Privacy Policy"
                     ),
                     FooterUrl(
-                        url = "https://google.com/",
+                        url = "https://example.com/terms",
                         label = "Terms of Service"
-                    ),
+                    )
                 ),
                 enableGuestLogin = true,
-                guestLoginButtonLabel = "Continue as Guest",
-                merchantType = "custom",
+                guestLoginButtonLabel = "Skip",
                 createUserConfig = CreateUserConfig(
                     isEmailRequired = true,
                     isNameRequired = true,
-                    isGenderRequired = false,
-                    isDobRequired = false,
+                    isGenderRequired = true,
+                    isDobRequired = true,
                     showEmail = true,
                     showUserName = true,
-                    showGender = false,
-                    showDob = false
+                    showGender = true,
+                    showDob = true
                 ),
                 inputProps = TextInputConfig(
+                    submitButtonStyle = mapOf(
+                        "backgroundColor" to "#007AFF",
+                        "borderRadius" to 8,
+                        "height" to 48
+                    ),
+                    inputContainerStyle = mapOf(
+                        "marginBottom" to 16,
+                        "borderRadius" to 8,
+                        "borderWidth" to 1,
+                        "borderColor" to "#E5E5E5"
+                    ),
+                    inputStyle = mapOf(
+                        "fontSize" to 16,
+                        "color" to "#000000",
+                        "padding" to 12
+                    ),
+                    titleStyle = mapOf(
+                        "fontSize" to 24,
+                        "fontWeight" to "700",
+                        "color" to "#000000",
+                        "marginBottom" to 8
+                    ),
+                    subTitleStyle = mapOf(
+                        "fontSize" to 16,
+                        "color" to "#666666",
+                        "marginBottom" to 24
+                    ),
+                    otpPlaceholder = "Enter OTP",
                     phoneAuthScreen = PhoneAuthScreenConfig(
-                        title = "Login now from here",
-//                        subTitle = "Login with your phone number",
-                        phoneNumberPlaceholder = "Enter your phone here",
+                        title = "Welcome Back",
+                        subTitle = "Login with your phone number",
+                        phoneNumberPlaceholder = "Enter your phone number",
+                        updatesPlaceholder = "Get updates on WhatsApp",
                         submitButtonText = "Continue",
                     ),
                     otpVerificationScreen = OtpVerificationScreenConfig(
-                        title = "Enter your code here!",
-//                        subTitle = "4 digit unique code",
-                        submitButtonText = "Submit Code"
+                        title = "Verify OTP",
+                        subTitle = "Enter the 4-digit code sent to your phone",
+                        submitButtonText = "Verify",
+                    ),
+                    createUserScreen = CreateUserScreenConfig(
+                        title = "Complete Profile",
+                        subTitle = "Tell us more about yourself",
+                        emailPlaceholder = "Enter your email",
+                        namePlaceholder = "Enter your name",
+                        dobPlaceholder = "Date of birth",
+                        genderPlaceholder = "Select gender",
+                        submitButtonText = "Complete",
+                        dobFormat = "DD/MM/YYYY",
+                        genderTitle = "Gender"
                     )
                 )
             )
@@ -121,34 +137,30 @@ class MainActivity : AppCompatActivity() {
                 callback = object : KwikpassCallback {
                     override fun onSuccess(data: Any) {
                         println("SUCCESS LOGIN COMPLETE $data")
-                        runOnUiThread {
-                            // Handle successful login
-                            Toast.makeText(
-                                this@MainActivity,
-                                "Login successful!",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            loginButton.visibility = View.VISIBLE
-                            supportFragmentManager.popBackStack()
-                        }
+                        // Handle successful login
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Login successful!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        loginButton.visibility = View.VISIBLE
+                        supportFragmentManager.popBackStack()
                     }
 
                     override fun onError(error: String) {
-                        runOnUiThread {
-                            // Handle login error with proper error message
-                            Toast.makeText(
-                                this@MainActivity,
-                                error,
-                                Toast.LENGTH_LONG
-                            ).show()
-                            
-                            // Optionally show the login button again on critical errors
-                            if (error.contains("Failed to initialize") || 
-                                error.contains("Network error") ||
-                                error.contains("Authentication failed")) {
-                                loginButton.visibility = View.VISIBLE
-                                supportFragmentManager.popBackStack()
-                            }
+                        // Handle login error with proper error message
+                        Toast.makeText(
+                            this@MainActivity,
+                            error,
+                            Toast.LENGTH_LONG
+                        ).show()
+                        
+                        // Optionally show the login button again on critical errors
+                        if (error.contains("Failed to initialize") || 
+                            error.contains("Network error") ||
+                            error.contains("Authentication failed")) {
+                            loginButton.visibility = View.VISIBLE
+                            supportFragmentManager.popBackStack()
                         }
                     }
                 }

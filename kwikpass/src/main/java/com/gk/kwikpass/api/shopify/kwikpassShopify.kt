@@ -62,7 +62,7 @@ class KwikpassShopify {
                         cache.setValue(KwikPassKeys.GK_VERIFIED_USER, userDataJson.toString())
                     }
 
-                    return@withContext Result.success(responseBody)
+                    return@withContext Result.success(response.body()!!)
                 } else {
                     println("Response body is null")
                     return@withContext Result.failure(Exception("Empty response body"))

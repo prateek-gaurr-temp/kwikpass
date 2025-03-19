@@ -59,6 +59,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
+import com.gk.kwikpass.api.ShopifyData
 
 // Form state data class equivalent to React Native's LoginForm
 data class LoginFormState(
@@ -236,7 +237,7 @@ class KwikpassLoginFragment : Fragment() {
     private var config: KwikpassConfig? = null
     private lateinit var kwikPassApi: KwikPassApi
     private var merchantType: String = "custom"
-    private var callback: KwikpassCallback? = null
+    var callback: KwikpassCallback? = null
     private lateinit var gson: Gson
     private lateinit var cache: KwikPassCache
 
@@ -310,23 +311,23 @@ class KwikpassLoginFragment : Fragment() {
         var isUserLoggedIn by remember { mutableStateOf(false) }
 
         // Check user logged in state
-//        LaunchedEffect(Unit) {
-//            val verifiedUser = cache?.getValue(KwikPassKeys.GK_VERIFIED_USER)
-//            if (verifiedUser != null) {
-//                val userData = gson.fromJson(verifiedUser, Map::class.java)
-//                isUserLoggedIn = when (merchantType) {
-//                    "shopify" -> {
-//                        (userData["shopifyCustomerId"] != null &&
-//                         userData["phone"] != null &&
-//                         userData["email"] != null &&
-//                         userData["multipassToken"] != null)
-//                    }
-//                    else -> {
-//                        userData["phone"] != null && userData["email"] != null
-//                    }
-//                }
-//            }
-//        }
+        LaunchedEffect(Unit) {
+            val verifiedUser = cache?.getValue(KwikPassKeys.GK_VERIFIED_USER)
+            if (verifiedUser != null) {
+                val userData = gson.fromJson(verifiedUser, Map::class.java)
+                isUserLoggedIn = when (merchantType) {
+                    "shopify" -> {
+                        (userData["shopifyCustomerId"] != null &&
+                         userData["phone"] != null &&
+                         userData["email"] != null &&
+                         userData["multipassToken"] != null)
+                    }
+                    else -> {
+                        userData["phone"] != null && userData["email"] != null
+                    }
+                }
+            }
+        }
 
         var showVerifyScreen by remember { mutableStateOf(false) }
         var showCreateAccount by remember { mutableStateOf(false) }
@@ -336,6 +337,13 @@ class KwikpassLoginFragment : Fragment() {
         val handleSendVerificationCode = { phone: String, notifications: Boolean ->
             viewLifecycleOwner.lifecycleScope.launch {
                 try {
+                    // Validate phone number before making API call
+                    if (phone.length != 10 || !phone.all { it.isDigit() }) {
+                        formViewModel.setError("phone", "Please enter a valid 10-digit phone number")
+                        callback?.onError("Please enter a valid 10-digit phone number")
+                        return@launch
+                    }
+
                     println("PHONE $phone")
                     println("NOTIFI $notifications")
                     loginViewModel.setLoading(true)
@@ -368,63 +376,41 @@ class KwikpassLoginFragment : Fragment() {
                     println("RESULT IS PRINTED AS $result")
 
                     result.onSuccess { response ->
+                        println("RESPONSE TYPE: ${response::class.java.simpleName}")
                         println("RESPONSE AFTER SUCCESS IS $response")
-                        // First try to get the response body
-                        val responseBody = when (response) {
-                            is Map<*, *> -> response
-                            else -> {
-                                println("Response is not a Map, trying to parse from body")
-                                gson.fromJson(gson.toJson(response), Map::class.java)
-                            }
+                        
+                        // Convert the response to JSON string first
+                        val responseJson = gson.toJson(response)
+                        println("RESPONSE AS JSON: $responseJson")
+                        
+                        // Parse the nested structure
+                        val responseMap = gson.fromJson(responseJson, Map::class.java)
+                        val valueMap = responseMap["value"] as? Map<*, *>
+                        val data = valueMap?.get("data") as? Map<*, *>
+                        
+                        println("EXTRACTED DATA: $data")
+                        
+                        // Create cleaned data with required fields
+                        val cleanedData = mutableMapOf<String, Any?>()
+                        cleanedData["shopifyCustomerId"] = data?.get("shopifyCustomerId")
+                        cleanedData["email"] = data?.get("email")
+                        cleanedData["phone"] = phone
+
+                        val password = data?.get("password")
+                        if(password != null) {
+                            cleanedData["password"] = password
                         }
 
-                        // Then try to get the data
-                        val data = when (val rawData = responseBody?.get("data")) {
-                            is Map<*, *> -> rawData
-                            else -> {
-                                println("Data is not a Map, trying to parse from JSON")
-                                gson.fromJson(gson.toJson(rawData), Map::class.java)
-                            }
+                        val token = data?.get("multipassToken")
+                        if(token !== null){
+                            cleanedData["multipassToken"] = token
                         }
 
-                        // Handle Shopify merchant type
-                        if (merchantType == "shopify" && data?.get("email") != null) {
-                            // Create a copy with updated phone number
-                            val cleanedData = data.toMutableMap().apply {
-                                remove("state")
-                                put("phone", get("phone") ?: phone)
-                            }
-                            
-                            formViewModel.setSuccess(true)
-                            callback?.onSuccess(cleanedData)
-                            verifyViewModel.setLoading(false)
-                            return@launch
-                        }
-
-                        // Handle multiple emails
-                        if (data?.get("multipleEmail") != null) {
-                            showShopifyEmail = true
-                        }
-
-                        // Handle new user requiring email
-                        if (data?.get("emailRequired") == true && data["email"] == null) {
-                            formViewModel.setNewUser(true)
-                            showCreateAccount = true
-                        }
-
-                        // Handle merchant response with email
-                        val merchantResponse = data?.get("merchantResponse") as? Map<*, *>
-                        if (merchantResponse?.get("email") != null) {
-                            val merchantDataMutable = merchantResponse.toMutableMap()
-                            if (merchantDataMutable["phone"] == null) {
-                                merchantDataMutable["phone"] = phone
-                            }
-                            formViewModel.setSuccess(true)
-                            callback?.onSuccess(merchantDataMutable)
-                        }
-
-                        // Clear OTP
-                        formViewModel.updateOtp("")
+                        println("FINAL CLEAN DATA IS $cleanedData")
+                        
+                        formViewModel.setSuccess(true)
+                        callback?.onSuccess(cleanedData)
+                        verifyViewModel.setLoading(false)
                     }.onFailure { error ->
                         formViewModel.setError("otp", error.message)
                         callback?.onError(error.message ?: "Failed to verify OTP")
