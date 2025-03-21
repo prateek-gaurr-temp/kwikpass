@@ -8,7 +8,6 @@ import com.gk.kwikpass.initializer.kwikpassInitializer
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 class KwikpassShopify {
     private val cache = KwikPassCache.getInstance(ApplicationCtx.get())
@@ -74,85 +73,6 @@ class KwikpassShopify {
         }
     }
 
-    suspend fun shopifySendEmailVerificationCode(email: String): Result<ShopifyResponse> = withContext(Dispatchers.IO) {
-        try {
-            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
-
-            // Send Snowplow event
-            phoneNumber?.let {
-//                sendCustomEventToSnowPlow(
-//                    category = "login_screen",
-//                    action = "click",
-//                    label = "email_filled",
-//                    property = "email",
-//                    value = it.toLong()
-//                )
-            }
-
-            // Make API call
-            val response = apiService?.sendShopifyEmailVerificationCode(
-                ShopifyEmailVerificationRequest(email)
-            )
-
-            if (response?.isSuccessful == true) {
-                return@withContext Result.success(response.body()!!)
-            }
-            Result.failure(Exception("Failed to send email verification code"))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun shopifyVerifyEmail(
-        email: String,
-        otp: String
-    ): Result<ShopifyResponse> = withContext(Dispatchers.IO) {
-        try {
-            val notifications = cache.getValue(KwikPassKeys.GK_NOTIFICATION_ENABLED)
-
-            // Make API call
-            val response = apiService?.verifyShopifyEmail(
-                ShopifyEmailVerifyRequest(
-                    email = email,
-                    otp = otp,
-                    isMarketingEventSubscribed = notifications == "true"
-                )
-            )
-
-            if (response?.isSuccessful == true) {
-                // Get existing user data
-                val userDataJson = cache.getValue(KwikPassKeys.GK_VERIFIED_USER)
-                val userData = userDataJson?.let { gson.fromJson(it, ShopifyUserData::class.java) }
-
-                // Update user data
-                val updatedData = response.body()?.data?.data?.copy(
-                    phone = userData?.phone
-                )
-
-                // Store updated user data
-                updatedData?.let {
-                    cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(it))
-                }
-
-                // Send Snowplow event
-                userData?.phone?.let {
-//                    sendCustomEventToSnowPlow(
-//                        category = "login_screen",
-//                        action = "logged_in",
-//                        label = "otp_verified",
-//                        property = "kwik_pass",
-//                        value = it.toLong()
-//                    )
-                }
-
-                return@withContext Result.success(response.body()!!)
-            }
-            Result.failure(Exception("Failed to verify email"))
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     suspend fun getCheckoutMultiPassToken(
         phone: String,
         email: String,
@@ -193,6 +113,70 @@ class KwikpassShopify {
                 return@withContext Result.success(response.body()!!)
             }
             Result.failure(Exception("Failed to get checkout multipass token"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun validateUserToken(): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (apiService == null) {
+                apiService = KwikPassHttpClient.getApiService(kwikpassInitializer.getEnvironment().toString(), kwikpassInitializer.getMerchantId().toString())
+            }
+
+            // Get tokens from cache
+            val accessToken = cache.getValue(KwikPassKeys.GK_ACCESS_TOKEN)
+            val checkoutAccessToken = cache.getValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN)
+
+            // Set headers
+            accessToken?.let {
+                KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.GK_ACCESS_TOKEN to it))
+            }
+            checkoutAccessToken?.let {
+                KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.CHECKOUT_ACCESS_TOKEN to it))
+            }
+
+            // Make API call
+            val response = apiService?.validateUserToken()
+
+            if (response?.isSuccessful == true) {
+                val responseData = response.body()
+                if (responseData?.data != null) {
+                    // Convert response data to JSON string
+                    val responseDataJson = gson.toJson(responseData.data)
+                    
+                    // Store in cache
+                    cache.setValue(KwikPassKeys.GK_VERIFIED_USER, responseDataJson)
+                    
+                    return@withContext Result.success(responseDataJson)
+                }
+                return@withContext Result.failure(Exception("Empty response data"))
+            }
+            
+            Result.failure(Exception("Failed to validate user token"))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun loginKpUser(): Result<LoginResponse> = withContext(Dispatchers.IO) {
+        try {
+            if (apiService == null) {
+                apiService = KwikPassHttpClient.getApiService(kwikpassInitializer.getEnvironment().toString(), kwikpassInitializer.getMerchantId().toString())
+            }
+
+            // Make API call
+            val response = apiService?.loginKpUser()
+
+            if (response?.isSuccessful == true) {
+                val responseData = response.body()
+                if (responseData != null) {
+                    return@withContext Result.success(responseData)
+                }
+                return@withContext Result.failure(Exception("Empty response data"))
+            }
+            
+            Result.failure(Exception("Failed to login user"))
         } catch (e: Exception) {
             Result.failure(e)
         }

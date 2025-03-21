@@ -24,10 +24,26 @@ class VerifyViewModel : ViewModel() {
     
     private var resendTimer: Job? = null
     private val _smsCode = MutableStateFlow<String>("")
-    val smsCode: StateFlow<String> = _smsCode.asStateFlow()
+    var smsCode: StateFlow<String> = _smsCode.asStateFlow()
 
     private var smsManager: SmsUserConsentManager? = null
     private var smsConsentLauncher: ActivityResultLauncher<Intent>? = null
+
+    fun updateSmsCode(code: String) {
+        _smsCode.value = code
+    }
+
+    fun resetSmsCode() {
+        _smsCode.value = ""
+    }
+
+    fun resetOtpFlag() {
+        _uiState.update { it.copy(shouldResetOtp = false) }
+    }
+
+    fun setResetOtpFlag() {
+        _uiState.update { it.copy(shouldResetOtp = true) }
+    }
 
     fun initializeSmsManager(activity: Activity, launcher: ActivityResultLauncher<Intent>) {
         Log.d(TAG, "Initializing SMS manager")
@@ -130,6 +146,10 @@ class VerifyViewModel : ViewModel() {
         _uiState.update { it.copy(isLoading = loading) }
     }
 
+    fun setSuccess(success: Boolean) {
+        _uiState.update { it.copy(isSuccess = success) }
+    }
+
     override fun onCleared() {
         super.onCleared()
         resendTimer?.cancel()
@@ -142,5 +162,7 @@ data class VerifyUiState(
     val resendSeconds: Int = 30,
     val isResendDisabled: Boolean = true,
     val attempts: Int = 0,
-    val maxAttempts: Int = 5
+    val maxAttempts: Int = 5,
+    val shouldResetOtp: Boolean = false,
+    val isSuccess: Boolean = false
 ) 

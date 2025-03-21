@@ -65,7 +65,6 @@ class SnowplowClient {
                     TimeMeasure(30, TimeUnit.SECONDS),
                     TimeMeasure(30, TimeUnit.SECONDS)
                 )
-                    .continueSessionOnRestart(false)
 
                 createTracker(
                     context,

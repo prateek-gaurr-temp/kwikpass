@@ -240,6 +240,7 @@ class KwikPassApi(private val context: Context) {
     suspend fun loginKpUser(): Result<LoginResponse> {
         try {
             val response = apiService?.loginKpUser()
+            println("RESPONSE FROM LOGIN KWIKPASS USER ${response?.body()}")
             if (response?.isSuccessful == true) {
                 return Result.success(response.body()!!)
             }
@@ -284,6 +285,7 @@ class KwikPassApi(private val context: Context) {
             }
 
             val response = apiService?.validateUserToken()
+            println("RESPONSE FROM VALIDATE USER TOKEN $response")
             if (response?.isSuccessful == true) {
                 val responseData = gson.toJson(response.body()?.data)
                 cache.setValue(KwikPassKeys.GK_VERIFIED_USER, responseData)
@@ -302,6 +304,8 @@ class KwikPassApi(private val context: Context) {
             val response = apiService?.verifyCode(VerifyCodeRequest(phoneNumber, code.toInt()))
             if (response?.isSuccessful == true) {
                 val data = response.body()?.data
+                println("DATA FROM RESPONSE $data")
+
                 if (data != null) {
                     // Send Snowplow event
 //                    sendCustomEventToSnowPlow(
@@ -348,7 +352,7 @@ class KwikPassApi(private val context: Context) {
                         if (data.state == "DISABLED") {
                             val multipassResult = shopify.getShopifyMultipassToken(
                                 phoneNumber,
-                                data.email,
+                                data?.email.toString(),
                                 data.shopifyCustomerId,
                                 state = data.state
                             )
@@ -405,7 +409,7 @@ class KwikPassApi(private val context: Context) {
                         // Store user data
                         val userData = data.copy(phone = phoneNumber)
                         cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(userData))
-
+                        println("userData before return $userData")
                         return Result.success(response.body()!!)
                     }
 
@@ -432,6 +436,9 @@ class KwikPassApi(private val context: Context) {
                         response.data?.merchantResponse?.email?.let {
                             cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(response.data))
                         }
+
+                        println("RESPONSE AFTER LOGIN IS SUCCESSFUL $response")
+                        return Result.success(response)
                     }
 
                     return Result.success(response.body()!!)
@@ -497,37 +504,15 @@ class KwikPassApi(private val context: Context) {
             // Clear cache
             cache.clearCache()
 
-            // Reinitialize SDK
-            val env = cache.getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
-            val mid = cache.getValue(KwikPassKeys.GK_MERCHANT_ID) ?: ""
-            val isSnowplowTrackingEnabled = cache.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
 
-//            initializeSdk(InitializeSdkArgs(mid, env, isSnowplowTrackingEnabled, ""))
-
-            return Result.success(true)
-        } catch (e: Exception) {
-            return Result.failure(e)
-        }
-    }
-
-    suspend fun kpLogout(): Result<Boolean> {
-        try {
-            val userJson = cache.getValue(KwikPassKeys.GK_VERIFIED_USER) ?: "{}"
-            val user = gson.fromJson(userJson, Map::class.java)
-            val phone = user["phone"]?.toString() ?: "0"
-
-            // Clear headers
-            KwikPassHttpClient.clearHeaders()
-
-            // Clear cache
-            cache.clearCache()
+            println("CHECKOUT CALLED")
 
             // Reinitialize SDK
             val env = cache.getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
             val mid = cache.getValue(KwikPassKeys.GK_MERCHANT_ID) ?: ""
             val isSnowplowTrackingEnabled = cache.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
 
-//            initializeSdk(InitializeSdkArgs(mid, env, isSnowplowTrackingEnabled))
+            kwikpassInitializer.initialize(context, mid, env, isSnowplowTrackingEnabled)
 
             return Result.success(true)
         } catch (e: Exception) {
@@ -577,7 +562,8 @@ class KwikPassApi(private val context: Context) {
                 .build()
 
             val response = client.newCall(request).execute()
-            
+            println("response from activate user account $response")
+
             return@withContext if (response.isSuccessful) {
                 Result.success(response)
             } else {
@@ -591,5 +577,105 @@ class KwikPassApi(private val context: Context) {
     // Helper function to URL encode parameters
     private fun String.encodeUrl(): String {
         return URLEncoder.encode(this, "UTF-8")
+    }
+
+    suspend fun shopifySendEmailVerificationCode(email: String): Result<Any> {
+        return try {
+            getBrowserToken()
+            
+            // Get phone number from cache
+//            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
+            
+            // Send Snowplow event
+            // TODO: Implement Snowplow event tracking
+            // sendCustomEventToSnowPlow(
+            //     category = "login_screen",
+            //     action = "click",
+            //     label = "email_filled",
+            //     property = "email",
+            //     value = phoneNumber?.toLong() ?: 0L
+            // )
+
+            val response = apiService?.sendShopifyEmailVerificationCode(
+                ShopifyEmailVerificationRequest(email)
+            )
+
+            println("RESPONSE FOR HANDLING EMAIL OTP API $response")
+
+            if (response?.isSuccessful == true) {
+                return Result.success(response.body()!!)
+            }
+            
+            val error = handleApiError(HttpException(response!!))
+            Result.failure(Exception(error.message))
+        } catch (e: Exception) {
+            val error = handleApiError(e)
+            Result.failure(Exception(error.message))
+        }
+    }
+
+    suspend fun shopifyVerifyEmail(email: String, otp: String): Result<Any> {
+        return try {
+            getBrowserToken()
+            
+            // Get notifications preference from cache
+            val notifications = cache.getValue(KwikPassKeys.GK_NOTIFICATION_ENABLED) == "true"
+            
+            // Create request body using the new request class
+            val requestBody = ShopifyEmailVerifyRequest(
+                email = email,
+                otp = otp,
+                redirectUrl = "/",
+                isMarketingEventSubscribed = notifications
+            )
+
+            // Make API call
+            val response = apiService?.verifyShopifyEmail(requestBody)
+            println("RESPONSE FOR EMAIL VERIFICATION $response")
+            
+            if (response?.isSuccessful == true) {
+                val responseData = response.body()
+                println("RESPONSE DATA FROM API FOR EMAIL VERIFICATION $responseData")
+
+                // Get existing user data from cache
+//                val userDataJson = cache.getValue(KwikPassKeys.GK_VERIFIED_USER)
+//                val userData = if (userDataJson != null) {
+//                    gson.fromJson(userDataJson, Map::class.java)
+//                } else {
+//                    emptyMap<String, Any>()
+//                }
+//
+//                // Create merged user data
+//                val mergedData = responseData?.data?.toMutableMap() ?: mutableMapOf()
+//
+//                // Add phone number if not present in response but exists in user data
+//                if (!mergedData.containsKey("phone") && userData.containsKey("phone")) {
+//                    mergedData["phone"] = userData["phone"]
+//                }
+//
+//                // Store updated user data in cache
+//                val updatedUserJson = gson.toJson(mergedData)
+//                cache.setValue(KwikPassKeys.GK_VERIFIED_USER, updatedUserJson)
+
+                // Send Snowplow event
+                // TODO: Implement Snowplow event tracking
+                // sendCustomEventToSnowPlow(
+                //     category = "login_screen",
+                //     action = "logged_in",
+                //     label = "otp_verified",
+                //     property = "kwik_pass",
+                //     value = userData["phone"]?.toString()?.toLongOrNull() ?: 0L
+                // )
+
+                return Result.success(response.body()!!)
+            }
+
+            val error = handleApiError(HttpException(response!!))
+            Result.failure(Exception(error.message))
+        } catch (e: Exception) {
+            val error = handleApiError(e)
+            println("ERROR FROM EMAIL VALIDATION $error")
+            Result.failure(Exception(error.message))
+        }
     }
 }

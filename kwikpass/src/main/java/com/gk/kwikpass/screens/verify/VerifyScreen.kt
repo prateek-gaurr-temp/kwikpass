@@ -37,6 +37,7 @@ import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.gk.kwikpass.smsuserconsent.SmsUserConsentManager
+import kotlinx.coroutines.delay
 
 @Composable
 fun VerifyScreen(
@@ -50,12 +51,28 @@ fun VerifyScreen(
     uiState: VerifyUiState,
     onOtpChange: (String) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: VerifyViewModel = viewModel()
+    viewModel: VerifyViewModel = viewModel(),
+    resetOtp: Boolean = false,
+    currentOtp: String = "",
+    loadingText: String = "Signing you in...",
+    loadingTextStyle: TextStyle = TextStyle(
+        color = Color.White,
+        fontSize = 16.sp,
+        fontWeight = FontWeight.Medium
+    )
 ) {
     val TAG = "VerifyScreen"
     val context = LocalContext.current
     val activity = context as Activity
     val smsCode by viewModel.smsCode.collectAsState()
+
+    // Reset OTP when screen is first composed or when resetOtp changes
+    LaunchedEffect(Unit, resetOtp) {
+        if (resetOtp) {
+            viewModel.resetSmsCode()
+            viewModel.resetOtpFlag()
+        }
+    }
 
     // Handle activity result for SMS consent
     val launcher = rememberLauncherForActivityResult(
@@ -76,16 +93,13 @@ fun VerifyScreen(
         viewModel.startSmsListener()
     }
 
-    // Auto-verify when OTP is filled
-    LaunchedEffect(smsCode) {
+    // Auto-verify when OTP is filled (either from SMS or manual input)
+    LaunchedEffect(smsCode, currentOtp) {
         if (smsCode.length == 4 && !uiState.isLoading) {
-            Log.d(TAG, "Auto-verifying OTP: $smsCode")
-            onOtpChange(smsCode)
+            Log.d(TAG, "Auto-verifying OTP from SMS: $smsCode")
+            onOtpChange(smsCode)  // Update the form state with SMS code
+            viewModel.updateSmsCode("")
         }
-    }
-
-    LaunchedEffect(Unit) {
-        onResend()
     }
 
     Column(
@@ -132,11 +146,13 @@ fun VerifyScreen(
         }
 
         OtpInput(
-            onOtpChange = onOtpChange,
+            onOtpChange={ newValue ->
+                onOtpChange(newValue)
+            },
             error = uiState.errors["otp"],
-            enabled = !uiState.isLoading,
+            enabled = true,
             modifier = Modifier.padding(vertical = 2.dp),
-            value = smsCode
+            value = currentOtp
         )
 
         ResendSection(
@@ -153,25 +169,44 @@ fun VerifyScreen(
                 .fillMaxWidth()
                 .height(50.dp)
                 .padding(top = 2.dp),
-            enabled = true,
+//            enabled = !uiState.isLoading && !uiState.isSuccess,
             shape = RoundedCornerShape(6.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF007AFF)
             )
         ) {
-            if (uiState.isLoading) {
-                CircularProgressIndicator(
-                    color = Color.White,
-                    modifier = Modifier.size(24.dp)
-                )
-            } else {
-                Text(
-                    text = submitButtonText,
-                    fontSize = 18.sp,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
-                )
+            when {
+                uiState.isSuccess -> {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Text(
+                            text = loadingText,
+                            style = loadingTextStyle
+                        )
+                    }
+                }
+                uiState.isLoading -> {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                else -> {
+                    Text(
+                        text = submitButtonText,
+                        fontSize = 18.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
+                    )
+                }
             }
         }
     }
@@ -189,9 +224,7 @@ private fun OtpInput(
     val cellCount = 4
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
-    val cellSize = with(LocalDensity.current) {
-        (LocalConfiguration.current.screenWidthDp.dp - 100.dp) / 4
-    }
+    val cellSize = 60.dp
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -200,8 +233,10 @@ private fun OtpInput(
 
     Column {
         Row(
-            modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             repeat(cellCount) { index ->
                 val isFocused = value.length == index
@@ -215,7 +250,7 @@ private fun OtpInput(
                             width = 2.dp,
                             color = when {
                                 hasError -> Color.Red
-                                char.isNotEmpty() || isFocused -> Color.Black
+                                isFocused -> Color.Black
                                 else -> Color.Black.copy(alpha = 0.3f)
                             },
                             shape = RoundedCornerShape(8.dp)
@@ -229,9 +264,10 @@ private fun OtpInput(
                     Text(
                         text = char,
                         style = TextStyle(
-                            fontSize = 32.sp,
+                            fontSize = 24.sp,
                             textAlign = TextAlign.Center,
-                            color = Color.Black
+                            color = if (hasError) Color.Red else Color.Black,
+                            fontWeight = FontWeight.Bold
                         )
                     )
                 }
@@ -242,10 +278,8 @@ private fun OtpInput(
             value = value,
             onValueChange = { newValue ->
                 if (newValue.length <= cellCount && newValue.all { it.isDigit() }) {
+                    println("VALUE ON OTP CHANGE $newValue")
                     onOtpChange(newValue)
-                    if (newValue.length == cellCount) {
-                        keyboard?.hide()
-                    }
                 }
             },
             modifier = Modifier
@@ -256,7 +290,8 @@ private fun OtpInput(
                 keyboardType = KeyboardType.Number
             ),
             textStyle = TextStyle(color = Color.Transparent),
-            cursorBrush = SolidColor(Color.Transparent)
+            cursorBrush = SolidColor(Color.Transparent),
+            enabled = enabled
         )
 
         error?.let {
@@ -264,7 +299,7 @@ private fun OtpInput(
                 text = it,
                 color = Color.Red,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 2.dp)
+                modifier = Modifier.padding(top = 4.dp)
             )
         }
     }
@@ -282,14 +317,14 @@ private fun ResendSection(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.Center,
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "OTP not received? ",
                 fontSize = 14.sp,
-                color = Color(0xFF666666)
+                color = Color.Black
             )
 
             val resendText = if (isResendDisabled) {
@@ -301,17 +336,14 @@ private fun ResendSection(
             Text(
                 text = resendText,
                 fontSize = 14.sp,
-                color = Color(0xFF007AFF),
-                textDecoration = TextDecoration.Underline,
+                color = Color(0xFF0964C5),
                 modifier = Modifier
-                    .padding(start = 4.dp)
                     .clickable(
                         enabled = !isResendDisabled,
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = onResend
                     )
-                    .padding(vertical = 8.dp, horizontal = 4.dp)
             )
         }
     }

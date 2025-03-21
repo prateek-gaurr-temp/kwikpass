@@ -9,9 +9,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -28,10 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
@@ -55,23 +48,30 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.statusBarsPadding
-import com.gk.kwikpass.api.ShopifyData
+import com.gk.kwikpass.initializer.kwikpassInitializer
+import com.gk.kwikpass.screens.createaccount.CreateAccountData
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 
 // Form state data class equivalent to React Native's LoginForm
 data class LoginFormState(
     val phone: String = "",
     val notifications: Boolean = true,
-    val otp: String = "",
+    var otp: String = "",
     val otpSent: Boolean = false,
     val isNewUser: Boolean = false,
     val emailOtpSent: Boolean = false,
-    val shopifyEmail: String = "",
+    var shopifyEmail: String = "",
     val shopifyOTP: String = "",
-    val isSuccess: Boolean = false
+    val isSuccess: Boolean = false,
+    val multipleEmail: List<MultipleEmail> = emptyList()
+)
+
+data class MultipleEmail(
+    val label: String,
+    val value: String
 )
 
 // Form validation errors
@@ -84,7 +84,7 @@ data class LoginFormErrors(
 
 // Callback interface for Kwikpass events
 interface KwikpassCallback {
-    fun onSuccess(data: Any)
+    fun onSuccess(data: MutableMap<String, Any?>?)
     fun onError(error: String)
 }
 
@@ -146,6 +146,10 @@ class LoginFormViewModel : androidx.lifecycle.ViewModel() {
         _formState.value = LoginFormState()
         _formErrors.value = LoginFormErrors()
     }
+
+    fun updateMultipleEmail(emails: List<MultipleEmail>) {
+        _formState.value = _formState.value.copy(multipleEmail = emails)
+    }
 }
 
 // Data classes for configuration
@@ -191,7 +195,9 @@ data class PhoneAuthScreenConfig(
 data class OtpVerificationScreenConfig(
     val title: String? = null,
     val subTitle: String? = null,
-    val submitButtonText: String? = null
+    val submitButtonText: String? = null,
+    val loadingText: String? = null,
+    val loadingTextStyle: Map<String, Any>? = null
 )
 
 data class CreateUserScreenConfig(
@@ -271,15 +277,17 @@ class KwikpassLoginFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        // Parse configuration from arguments
-        config = arguments?.let { parseConfig(it) }
+        // Parse configuration from arguments using Gson
+        config = arguments?.getString(CONFIG_KEY)?.let { 
+            Gson().fromJson(it, KwikpassConfig::class.java)
+        }
 
         // Initialize Snowplow client
         viewLifecycleOwner.lifecycleScope.launch {
             val snowplowClientRes = SnowplowClient.getSnowplowClient(
                 ApplicationCtx.get(),
-                "sandbox",
-                "19x8g5js05wj"
+                kwikpassInitializer.getEnvironment().toString(),
+                kwikpassInitializer.getMerchantId().toString()
             )
         }
 
@@ -315,6 +323,7 @@ class KwikpassLoginFragment : Fragment() {
             val verifiedUser = cache?.getValue(KwikPassKeys.GK_VERIFIED_USER)
             if (verifiedUser != null) {
                 val userData = gson.fromJson(verifiedUser, Map::class.java)
+                println("USER DATA IS $userData")
                 isUserLoggedIn = when (merchantType) {
                     "shopify" -> {
                         (userData["shopifyCustomerId"] != null &&
@@ -323,7 +332,7 @@ class KwikpassLoginFragment : Fragment() {
                          userData["multipassToken"] != null)
                     }
                     else -> {
-                        userData["phone"] != null && userData["email"] != null
+                        userData?.get("phone") != null && userData?.get("email") != null
                     }
                 }
             }
@@ -332,6 +341,7 @@ class KwikpassLoginFragment : Fragment() {
         var showVerifyScreen by remember { mutableStateOf(false) }
         var showCreateAccount by remember { mutableStateOf(false) }
         var showShopifyEmail by remember { mutableStateOf(false) }
+        var shouldResetOtp by remember { mutableStateOf(false) }
 
         // Handle send verification code
         val handleSendVerificationCode = { phone: String, notifications: Boolean ->
@@ -349,6 +359,7 @@ class KwikpassLoginFragment : Fragment() {
                     loginViewModel.setLoading(true)
                     val result = kwikPassApi.sendVerificationCode(phone, notifications)
                     println("RESULT FROM API $result")
+
                     result.onSuccess {
                         formViewModel.setOtpSent(true)
                         showVerifyScreen = true
@@ -372,6 +383,7 @@ class KwikpassLoginFragment : Fragment() {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.verifyCode(phone, otp)
+                    shouldResetOtp = true
 
                     println("RESULT IS PRINTED AS $result")
 
@@ -385,44 +397,288 @@ class KwikpassLoginFragment : Fragment() {
                         
                         // Parse the nested structure
                         val responseMap = gson.fromJson(responseJson, Map::class.java)
-                        val valueMap = responseMap["value"] as? Map<*, *>
-                        val data = valueMap?.get("data") as? Map<*, *>
-                        
-                        println("EXTRACTED DATA: $data")
-                        
-                        // Create cleaned data with required fields
-                        val cleanedData = mutableMapOf<String, Any?>()
-                        cleanedData["shopifyCustomerId"] = data?.get("shopifyCustomerId")
-                        cleanedData["email"] = data?.get("email")
-                        cleanedData["phone"] = phone
+                        if(merchantType == "shopify") {
+                            val data = responseMap["data"] as? Map<*, *>
 
-                        val password = data?.get("password")
-                        if(password != null) {
-                            cleanedData["password"] = password
+                            println("EXTRACTED DATA: $data")
+
+                            // Handle multiple email case
+                            if (data?.containsKey("multipleEmail") == true) {
+                                val multipleEmailStr = data["multipleEmail"] as? String
+                                if (multipleEmailStr != null) {
+                                    val emails = multipleEmailStr.split(",").map { email ->
+                                        MultipleEmail(
+                                            label = email.trim(),
+                                            value = email.trim()
+                                        )
+                                    }
+
+                                    println("EMAILS FROM API: $emails")
+                                    formViewModel.updateMultipleEmail(emails)
+                                }
+                            }
+
+                            println(" data?.get(\"emailRequired\") == true. ${data?.get("emailRequired") == true}")
+                            println("data?.get(\"email\") == null. ${data?.get("email") == null}")
+
+                            // Handle email required case
+                            if (data?.get("emailRequired") == true && data["email"] == null) {
+                                verifyViewModel.setLoading(false)
+                                formViewModel.setNewUser(true)
+                                formState.otp = ""
+                                formViewModel.setOtpSent(false)
+                                return@launch
+                            }
+
+                            // Create cleaned data with required fields
+                            val cleanedData = mutableMapOf<String, Any?>()
+                            cleanedData["shopifyCustomerId"] = data?.get("shopifyCustomerId")
+                            cleanedData["email"] = data?.get("email")
+                            cleanedData["phone"] = phone
+
+                            val password = data?.get("password")
+                            if(password != null) {
+                                cleanedData["password"] = password
+                            }
+
+                            val token = data?.get("multipassToken")
+                            if(token !== null){
+                                cleanedData["multipassToken"] = token
+                            }
+
+                            println("FINAL CLEAN DATA IS $cleanedData")
+
+                            formViewModel.setSuccess(true)
+                            verifyViewModel.setSuccess(true)
+                            callback?.onSuccess(cleanedData)
+                            verifyViewModel.setLoading(false)
+                            return@onSuccess
+                        } else{
+                            val data = (responseMap["data"] as? Map<String, Any?>)?.toMutableMap()
+
+                            println("data?.containsKey(\"emailRequired\") == true ${data?.containsKey("emailRequired")}")
+
+                            if(data?.containsKey("emailRequired") == true){
+                                if(data["emailRequired"] == true && data["email"] == null){
+                                    formViewModel.setNewUser(true)
+                                    formState.otp = ""
+                                    formViewModel.setOtpSent(false)
+                                    verifyViewModel.setLoading(false)
+                                    return@launch
+                                }
+                            }
+
+                            if(data?.containsKey("email") == true && data["email"]!==null){
+                                if(data?.containsKey("phone") == false){
+                                    data["phone"] = formState.phone
+                                }
+
+                                println("DATA FOR CUSTOM MERCHANTS $data")
+                                cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(data))
+                                formViewModel.setSuccess(true)
+                                verifyViewModel.setSuccess(true)
+                                callback?.onSuccess(data)
+                                verifyViewModel.setLoading(false)
+                            }
+                            return@onSuccess
                         }
-
-                        val token = data?.get("multipassToken")
-                        if(token !== null){
-                            cleanedData["multipassToken"] = token
-                        }
-
-                        println("FINAL CLEAN DATA IS $cleanedData")
-                        
-                        formViewModel.setSuccess(true)
-                        callback?.onSuccess(cleanedData)
-                        verifyViewModel.setLoading(false)
                     }.onFailure { error ->
                         formViewModel.setError("otp", error.message)
                         callback?.onError(error.message ?: "Failed to verify OTP")
+                        verifyViewModel.setLoading(false)
                     }
                 } catch (e: Exception) {
                     formViewModel.setError("otp", e.message)
                     callback?.onError(e.message ?: "Failed to verify OTP")
+                    verifyViewModel.setLoading(false)
+                }
+            }
+        }
+
+        // Handle create account
+        val handleCreateAccount = { accountData: CreateAccountData ->
+            println("ACCOUNT CREATION DATA $accountData")
+
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    verifyViewModel.setLoading(true)
+                    val result = kwikPassApi.createUser(
+                        accountData.email,
+                        accountData.username,
+                        accountData.dob,
+                        accountData.gender
+                    )
+
+                    result.onSuccess { response ->
+                        val responseJson = gson.toJson(response)
+                        val responseMap = gson.fromJson(responseJson, Map::class.java)
+                        val data = responseMap["data"] as? Map<*, *>
+                        val merchantResponse = data?.get("merchantResponse") as? Map<*, *>
+                        val accountCreate = merchantResponse?.get("accountCreate") as? Map<*, *>
+                        val user = accountCreate?.get("user") as? Map<*, *>
+                        val accountErrors = accountCreate?.get("accountErrors") as? List<*>
+
+                        println("USER RESPONSE IS $user")
+                        println("ACCOUNT ERRORS $accountErrors")
+
+                        if (user != null && (accountErrors == null || accountErrors.isEmpty())) {
+                            // Create user data map with all necessary fields
+                            val userData = mutableMapOf<String, Any?>()
+                            userData["id"] = user["id"]
+                            userData["token"] = user["token"]
+                            userData["refreshToken"] = user["refreshToken"]
+                            userData["csrfToken"] = user["csrfToken"]
+                            userData["phone"] = formState.phone
+                            userData["email"] = accountData.email
+
+                            // Store user data in cache
+                            cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(userData))
+
+                            // Set success state and trigger callback
+                            formViewModel.setSuccess(true)
+                            verifyViewModel.setSuccess(true)
+                            callback?.onSuccess(userData)
+                        } else if (!accountErrors.isNullOrEmpty()) {
+                            val errorMessage = accountErrors.firstOrNull()?.toString() ?: "Failed to create account"
+                            formViewModel.setError("createAccount", errorMessage)
+                            callback?.onError(errorMessage)
+                        }
+                    }.onFailure { error ->
+                        formViewModel.setError("createAccount", error.message)
+                        callback?.onError(error.message ?: "Failed to create account")
+                    }
+                } catch (e: Exception) {
+                    formViewModel.setError("createAccount", e.message)
+                    callback?.onError(e.message ?: "Failed to create account")
                 } finally {
                     verifyViewModel.setLoading(false)
                 }
             }
         }
+
+        // Handle Shopify email submission
+        val handleShopifyEmailSubmit = { email: String ->
+            formState.shopifyEmail = email
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    loginViewModel.setLoading(true)
+                    val result = kwikPassApi.shopifySendEmailVerificationCode(email)
+
+                    println("RESULT FROM API FOR EMAIL VERIFICATION FLOW $result")
+
+                    result.onSuccess {
+                        formViewModel.setEmailOtpSent(true)
+                        formViewModel.setNewUser(false)
+                    }.onFailure { error ->
+                        formViewModel.setError("shopifyEmail", error.message)
+                        callback?.onError(error.message ?: "Failed to send email verification code")
+                    }
+                } catch (e: Exception) {
+                    formViewModel.setError("shopifyEmail", e.message)
+                    callback?.onError(e.message ?: "Failed to send email verification code")
+                } finally {
+                    loginViewModel.setLoading(false)
+                }
+            }
+        }
+
+        // Handle resend email OTP
+        val handleResendEmailOTP = {
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    verifyViewModel.setLoading(true)
+                    val result = kwikPassApi.shopifySendEmailVerificationCode(formState.shopifyEmail)
+
+                    result.onSuccess {
+                        formViewModel.setEmailOtpSent(true)
+                        formViewModel.setNewUser(false)
+                    }.onFailure { error ->
+                        formViewModel.setError("shopifyOTP", error.message)
+                        callback?.onError(error.message ?: "Failed to resend email verification code")
+                    }
+                } catch (e: Exception) {
+                    formViewModel.setError("shopifyOTP", e.message)
+                    callback?.onError(e.message ?: "Failed to resend email verification code")
+                } finally {
+                    verifyViewModel.setLoading(false)
+                }
+            }
+        }
+
+        // Handle resend phone OTP
+        val handleResendPhoneOTP = {
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    verifyViewModel.setLoading(true)
+                    val result = kwikPassApi.sendVerificationCode(formState.phone, true)
+
+                    result.onSuccess {
+                        formViewModel.setOtpSent(true)
+                    }.onFailure { error ->
+                        formViewModel.setError("otp", error.message)
+                        callback?.onError(error.message ?: "Failed to resend verification code")
+                    }
+                } catch (e: Exception) {
+                    formViewModel.setError("otp", e.message)
+                    callback?.onError(e.message ?: "Failed to resend verification code")
+                } finally {
+                    verifyViewModel.setLoading(false)
+                }
+            }
+        }
+
+        // Handle Shopify email OTP verification
+        val handleShopifyEmailOTPVerification = { email: String, otp: String ->
+            println("EMAIL AND OTP FOR EMAIL VERIFICATION $email and $otp")
+            viewLifecycleOwner.lifecycleScope.launch {
+                try {
+                    verifyViewModel.setLoading(true)
+                    val result = kwikPassApi.shopifyVerifyEmail(email.toString(), otp.toString())
+                    shouldResetOtp = true
+
+                    result.onSuccess { response ->
+                        println("SHOPIFY EMAIL VERIFICATION RESPONSE: $response")
+                        
+                        // Convert response to JSON string
+                        val responseJson = gson.toJson(response)
+                        val responseMap = gson.fromJson(responseJson, Map::class.java)
+                        val responseData = responseMap["data"] as? Map<String, Any>
+
+                        if (responseData != null) {
+                            // Create a mutable copy of the response data
+                            val userData = responseData.toMutableMap()
+
+                            // Add phone number if not present
+                            if (!userData.containsKey("phone")) {
+                                userData["phone"] = formState.phone
+                            }
+
+                            // Store verified user data in cache
+                            val userJson = gson.toJson(userData)
+                            cache?.setValue(KwikPassKeys.GK_VERIFIED_USER, userJson)
+
+                            // Set success state
+                            formViewModel.setSuccess(true)
+                            verifyViewModel.setSuccess(true)
+
+                            // Call success callback with user data
+                            callback?.onSuccess(userData as MutableMap<String, Any?>?)
+                        }
+                    }.onFailure { error ->
+                        formViewModel.setError("shopifyOTP", error.message)
+                        callback?.onError(error.message ?: "Failed to verify email OTP")
+                    }
+                } catch (e: Exception) {
+                    formViewModel.setError("shopifyOTP", e.message)
+                    callback?.onError(e.message ?: "Failed to verify email OTP")
+                } finally {
+                    verifyViewModel.setLoading(false)
+                }
+            }
+        }
+
+        println("formState.isNewUser ${formState.isNewUser}")
+
 
         Surface(
             modifier = Modifier.fillMaxSize(),
@@ -447,31 +703,34 @@ class KwikpassLoginFragment : Fragment() {
 
                 if (!isUserLoggedIn) {
                     when {
-                        showShopifyEmail -> {
-                            ShopifyEmailScreen(
-                                onSubmit = { email ->
-                                    formViewModel.updateShopifyEmail(email)
+                        formState.emailOtpSent -> {
+                            VerifyScreen(
+                                onVerify = { 
+                                    handleShopifyEmailOTPVerification(formState.shopifyEmail, formState.shopifyOTP)
                                 },
-                                isLoading = false,
-                                title = config?.inputProps?.shopifyEmailScreen?.title ?: "Submit your details",
-                                subTitle = config?.inputProps?.shopifyEmailScreen?.subTitle,
-                                emailPlaceholder = config?.inputProps?.shopifyEmailScreen?.emailPlaceholder ?: "Enter your email",
-                                submitButtonText = config?.inputProps?.shopifyEmailScreen?.submitButtonText ?: "Submit"
-                            )
-                        }
-                        showCreateAccount -> {
-                            CreateAccountScreen(
-                                onSubmit = { accountData ->
-                                    // Handle create account submission
+                                onEdit = {
+                                    formViewModel.setEmailOtpSent(false)
+                                    formViewModel.setNewUser(true)
                                 },
-                                isLoading = false,
-                                errors = emptyMap(),
-                                title = config?.inputProps?.createUserScreen?.title ?: "Submit your details",
-                                subTitle = config?.inputProps?.createUserScreen?.subTitle,
-                                showEmail = config?.createUserConfig?.showEmail ?: true,
-                                showUserName = config?.createUserConfig?.showUserName ?: true,
-                                showGender = config?.createUserConfig?.showGender ?: false,
-                                showDob = config?.createUserConfig?.showDob ?: false
+                                onResend = {
+                                    handleResendEmailOTP()
+                                },
+                                otpLabel = formState.shopifyEmail,
+                                uiState = verifyUiState,
+                                onOtpChange = { otp ->
+                                    formViewModel.updateShopifyOTP(otp)
+                                    if (otp.length == 4) {
+                                        handleShopifyEmailOTPVerification(formState.shopifyEmail, otp)
+                                    }
+                                },
+                                resetOtp = verifyUiState.shouldResetOtp,
+                                currentOtp = formState.shopifyOTP,
+                                loadingText = config?.inputProps?.otpVerificationScreen?.loadingText ?: "Signing you in...",
+                                loadingTextStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             )
                         }
                         formState.otpSent -> {
@@ -481,10 +740,9 @@ class KwikpassLoginFragment : Fragment() {
                                 },
                                 onEdit = {
                                     formViewModel.setOtpSent(false)
-                                    showVerifyScreen = false
                                 },
                                 onResend = {
-                                    handleSendVerificationCode(formState.phone, formState.notifications)
+                                    handleResendPhoneOTP()
                                 },
                                 otpLabel = "+91 ${formState.phone}",
                                 title = config?.inputProps?.otpVerificationScreen?.title ?: "OTP Verification",
@@ -493,13 +751,48 @@ class KwikpassLoginFragment : Fragment() {
                                 uiState = verifyUiState,
                                 onOtpChange = { otp ->
                                     formViewModel.updateOtp(otp)
-                                    verifyViewModel.validateOTP(otp)
                                     if (otp.length == 4) {
-                                        verifyViewModel.setLoading(true)
                                         handleVerifyOTP(formState.phone, otp)
                                     }
-                                }
+                                },
+                                resetOtp = verifyUiState.shouldResetOtp,
+                                currentOtp = formState.otp,
+                                loadingText = config?.inputProps?.otpVerificationScreen?.loadingText ?: "Signing you in...",
+                                loadingTextStyle = TextStyle(
+                                    color = Color.White,
+                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             )
+                        }
+                        formState.isNewUser -> {
+                            if (merchantType == "custom") {
+                                CreateAccountScreen(
+                                    onSubmit = { accountData ->
+                                        handleCreateAccount(accountData)
+                                    },
+                                    isLoading = verifyUiState.isLoading,
+//                                    errors = formErrors,
+                                    title = config?.inputProps?.createUserScreen?.title ?: "Submit your details",
+                                    subTitle = config?.inputProps?.createUserScreen?.subTitle,
+                                    showEmail = config?.createUserConfig?.showEmail ?: true,
+                                    showUserName = config?.createUserConfig?.showUserName ?: true,
+                                    showGender = config?.createUserConfig?.showGender ?: false,
+                                    showDob = config?.createUserConfig?.showDob ?: false
+                                )
+                            } else {
+                                ShopifyEmailScreen(
+                                    onSubmit = { email ->
+                                        handleShopifyEmailSubmit(email)
+                                    },
+                                    isLoading = verifyUiState.isLoading,
+                                    title = config?.inputProps?.shopifyEmailScreen?.title ?: "Submit your details",
+                                    subTitle = config?.inputProps?.shopifyEmailScreen?.subTitle,
+                                    emailPlaceholder = config?.inputProps?.shopifyEmailScreen?.emailPlaceholder ?: "Enter your email",
+                                    submitButtonText = config?.inputProps?.shopifyEmailScreen?.submitButtonText ?: "Submit",
+                                    multipleEmail = formState.multipleEmail
+                                )
+                            }
                         }
                         else -> {
                             LoginScreen(
@@ -574,7 +867,8 @@ class KwikpassLoginFragment : Fragment() {
                                     modifier = Modifier
                                         .padding(horizontal = 4.dp)
                                         .clickable {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url.url))
+                                            val intent =
+                                                Intent(Intent.ACTION_VIEW, Uri.parse(url.url))
                                             startActivity(intent)
                                         },
                                     textAlign = TextAlign.Center
@@ -587,219 +881,14 @@ class KwikpassLoginFragment : Fragment() {
         }
     }
 
-    private fun parseConfig(bundle: Bundle): KwikpassConfig {
-        return KwikpassConfig(
-            bannerImage = bundle.getString(BANNER_IMAGE),
-            logo = bundle.getString(LOGO),
-            footerText = bundle.getString(FOOTER_TEXT),
-            footerUrls = bundle.getString(FOOTER_URLS)?.let { urlsString ->
-                urlsString.split("|").map { urlPair ->
-                    val (label, url) = urlPair.split("::")
-                    FooterUrl(label = label, url = url)
-                }
-            },
-            enableGuestLogin = bundle.getBoolean(ENABLE_GUEST_LOGIN, false),
-            guestLoginButtonLabel = bundle.getString(GUEST_LOGIN_LABEL),
-            merchantType = bundle.getString(MERCHANT_TYPE, "custom"),
-            createUserConfig = CreateUserConfig(
-                isEmailRequired = bundle.getBoolean(IS_EMAIL_REQUIRED, false),
-                isNameRequired = bundle.getBoolean(IS_NAME_REQUIRED, false),
-                isGenderRequired = bundle.getBoolean(IS_GENDER_REQUIRED, false),
-                isDobRequired = bundle.getBoolean(IS_DOB_REQUIRED, false),
-                showEmail = bundle.getBoolean(SHOW_EMAIL, false),
-                showUserName = bundle.getBoolean(SHOW_USERNAME, false),
-                showGender = bundle.getBoolean(SHOW_GENDER, false),
-                showDob = bundle.getBoolean(SHOW_DOB, false)
-            ),
-            inputProps = TextInputConfig(
-                submitButtonStyle = bundle.getString(SUBMIT_BUTTON_STYLE)?.let { parseStyleMap(it) },
-                inputContainerStyle = bundle.getString(INPUT_CONTAINER_STYLE)?.let { parseStyleMap(it) },
-                inputStyle = bundle.getString(INPUT_STYLE)?.let { parseStyleMap(it) },
-                titleStyle = bundle.getString(TITLE_STYLE)?.let { parseStyleMap(it) },
-                subTitleStyle = bundle.getString(SUBTITLE_STYLE)?.let { parseStyleMap(it) },
-                otpPlaceholder = bundle.getString(OTP_PLACEHOLDER),
-                phoneAuthScreen = PhoneAuthScreenConfig(
-                    title = bundle.getString(PHONE_AUTH_TITLE),
-                    subTitle = bundle.getString(PHONE_AUTH_SUBTITLE),
-                    phoneNumberPlaceholder = bundle.getString(PHONE_NUMBER_PLACEHOLDER),
-                    updatesPlaceholder = bundle.getString(PHONE_UPDATES_PLACEHOLDER),
-                    submitButtonText = bundle.getString(PHONE_SUBMIT_BUTTON_TEXT)
-                ),
-                otpVerificationScreen = OtpVerificationScreenConfig(
-                    title = bundle.getString(OTP_VERIFY_TITLE),
-                    subTitle = bundle.getString(OTP_VERIFY_SUBTITLE),
-                    submitButtonText = bundle.getString(OTP_VERIFY_SUBMIT_TEXT)
-                ),
-                shopifyEmailScreen = ShopifyEmailScreenConfig(
-                    title = bundle.getString(SHOPIFY_EMAIL_TITLE),
-                    subTitle = bundle.getString(SHOPIFY_EMAIL_SUBTITLE),
-                    emailPlaceholder = bundle.getString(SHOPIFY_EMAIL_PLACEHOLDER),
-                    submitButtonText = bundle.getString(SHOPIFY_SUBMIT_TEXT)
-                ),
-                createUserScreen = CreateUserScreenConfig(
-                    title = bundle.getString(CREATE_USER_TITLE),
-                    subTitle = bundle.getString(CREATE_USER_SUBTITLE),
-                    emailPlaceholder = bundle.getString(CREATE_USER_EMAIL_PLACEHOLDER),
-                    namePlaceholder = bundle.getString(CREATE_USER_NAME_PLACEHOLDER),
-                    dobPlaceholder = bundle.getString(CREATE_USER_DOB_PLACEHOLDER),
-                    genderPlaceholder = bundle.getString(CREATE_USER_GENDER_PLACEHOLDER),
-                    submitButtonText = bundle.getString(CREATE_USER_SUBMIT_TEXT),
-                    dobFormat = bundle.getString(CREATE_USER_DOB_FORMAT),
-                    genderTitle = bundle.getString(CREATE_USER_GENDER_TITLE)
-                )
-            )
-        )
-    }
-
-    // Helper function to parse style maps from string
-    private fun parseStyleMap(styleString: String): Map<String, Any> {
-        return try {
-            // Simple string to map parser - you might want to use a proper JSON parser
-            styleString.trim('{', '}')
-                .split(",")
-                .map { it.split(":") }
-                .associate { (key, value) ->
-                    key.trim() to when {
-                        value.trim().startsWith("\"") -> value.trim('"')
-                        value.trim() == "true" -> true
-                        value.trim() == "false" -> false
-                        value.contains(".") -> value.toDouble()
-                        else -> value.toInt()
-                    }
-                }
-        } catch (e: Exception) {
-            emptyMap()
-        }
-    }
-
     companion object {
-        // Configuration Keys
-        private const val BANNER_IMAGE = "banner_image"
-        private const val LOGO = "logo"
-        private const val FOOTER_TEXT = "footer_text"
-        private const val FOOTER_URLS = "footer_urls"
-        private const val ENABLE_GUEST_LOGIN = "enable_guest_login"
-        private const val GUEST_LOGIN_LABEL = "guest_login_label"
-        private const val MERCHANT_TYPE = "merchant_type"
-
-        // Create User Config Keys
-        private const val IS_EMAIL_REQUIRED = "is_email_required"
-        private const val IS_NAME_REQUIRED = "is_name_required"
-        private const val IS_GENDER_REQUIRED = "is_gender_required"
-        private const val IS_DOB_REQUIRED = "is_dob_required"
-        private const val SHOW_EMAIL = "show_email"
-        private const val SHOW_USERNAME = "show_username"
-        private const val SHOW_GENDER = "show_gender"
-        private const val SHOW_DOB = "show_dob"
-
-        // Phone Auth Screen Config Keys
-        private const val PHONE_AUTH_TITLE = "phone_auth_title"
-        private const val PHONE_AUTH_SUBTITLE = "phone_auth_subtitle"
-        private const val PHONE_NUMBER_PLACEHOLDER = "phone_number_placeholder"
-        private const val PHONE_UPDATES_PLACEHOLDER = "phone_updates_placeholder"
-        private const val PHONE_SUBMIT_BUTTON_TEXT = "phone_submit_button_text"
-
-        // OTP Verification Screen Config Keys
-        private const val OTP_VERIFY_TITLE = "otp_verify_title"
-        private const val OTP_VERIFY_SUBTITLE = "otp_verify_subtitle"
-        private const val OTP_VERIFY_SUBMIT_TEXT = "otp_verify_submit_text"
-        private const val OTP_PLACEHOLDER = "otp_placeholder"
-
-        // Shopify Email Screen Config Keys
-        private const val SHOPIFY_EMAIL_TITLE = "shopify_email_title"
-        private const val SHOPIFY_EMAIL_SUBTITLE = "shopify_email_subtitle"
-        private const val SHOPIFY_EMAIL_PLACEHOLDER = "shopify_email_placeholder"
-        private const val SHOPIFY_SUBMIT_TEXT = "shopify_submit_text"
-
-        // Create User Screen Config Keys
-        private const val CREATE_USER_TITLE = "create_user_title"
-        private const val CREATE_USER_SUBTITLE = "create_user_subtitle"
-        private const val CREATE_USER_EMAIL_PLACEHOLDER = "create_user_email_placeholder"
-        private const val CREATE_USER_NAME_PLACEHOLDER = "create_user_name_placeholder"
-        private const val CREATE_USER_DOB_PLACEHOLDER = "create_user_dob_placeholder"
-        private const val CREATE_USER_GENDER_PLACEHOLDER = "create_user_gender_placeholder"
-        private const val CREATE_USER_SUBMIT_TEXT = "create_user_submit_text"
-        private const val CREATE_USER_DOB_FORMAT = "create_user_dob_format"
-        private const val CREATE_USER_GENDER_TITLE = "create_user_gender_title"
-
-        // Style Config Keys
-        private const val SUBMIT_BUTTON_STYLE = "submit_button_style"
-        private const val INPUT_CONTAINER_STYLE = "input_container_style"
-        private const val INPUT_STYLE = "input_style"
-        private const val TITLE_STYLE = "title_style"
-        private const val SUBTITLE_STYLE = "subtitle_style"
+        private const val CONFIG_KEY = "config"
 
         fun newInstance(config: KwikpassConfig, callback: KwikpassCallback): KwikpassLoginFragment {
             return KwikpassLoginFragment().apply {
                 this.callback = callback
                 arguments = Bundle().apply {
-                    putString(BANNER_IMAGE, config?.bannerImage)
-                    putString(LOGO, config?.logo)
-                    putString(FOOTER_TEXT, config.footerText)
-                    config.footerUrls?.let { urls ->
-                        val urlsString = urls.joinToString("|") { "${it.label}::${it.url}" }
-                        putString(FOOTER_URLS, urlsString)
-                    }
-                    putBoolean(ENABLE_GUEST_LOGIN, config.enableGuestLogin)
-                    putString(GUEST_LOGIN_LABEL, config.guestLoginButtonLabel)
-                    putString(MERCHANT_TYPE, config.merchantType)
-
-                    // Create User Config
-                    putBoolean(IS_EMAIL_REQUIRED, config.createUserConfig.isEmailRequired)
-                    putBoolean(IS_NAME_REQUIRED, config.createUserConfig.isNameRequired)
-                    putBoolean(IS_GENDER_REQUIRED, config.createUserConfig.isGenderRequired)
-                    putBoolean(IS_DOB_REQUIRED, config.createUserConfig.isDobRequired)
-                    putBoolean(SHOW_EMAIL, config.createUserConfig.showEmail)
-                    putBoolean(SHOW_USERNAME, config.createUserConfig.showUserName)
-                    putBoolean(SHOW_GENDER, config.createUserConfig.showGender)
-                    putBoolean(SHOW_DOB, config.createUserConfig.showDob)
-
-                    // Phone Auth Screen Config
-                    config.inputProps?.phoneAuthScreen?.let { phoneAuth ->
-                        putString(PHONE_AUTH_TITLE, phoneAuth.title)
-                        putString(PHONE_AUTH_SUBTITLE, phoneAuth.subTitle)
-                        putString(PHONE_NUMBER_PLACEHOLDER, phoneAuth.phoneNumberPlaceholder)
-                        putString(PHONE_UPDATES_PLACEHOLDER, phoneAuth.updatesPlaceholder)
-                        putString(PHONE_SUBMIT_BUTTON_TEXT, phoneAuth.submitButtonText)
-                    }
-
-                    // OTP Verification Screen Config
-                    config.inputProps?.otpVerificationScreen?.let { otpVerify ->
-                        putString(OTP_VERIFY_TITLE, otpVerify.title)
-                        putString(OTP_VERIFY_SUBTITLE, otpVerify.subTitle)
-                        putString(OTP_VERIFY_SUBMIT_TEXT, otpVerify.submitButtonText)
-                        putString(OTP_PLACEHOLDER, config.inputProps?.otpPlaceholder)
-                    }
-
-                    // Shopify Email Screen Config
-                    config.inputProps?.shopifyEmailScreen?.let { shopifyEmail ->
-                        putString(SHOPIFY_EMAIL_TITLE, shopifyEmail.title)
-                        putString(SHOPIFY_EMAIL_SUBTITLE, shopifyEmail.subTitle)
-                        putString(SHOPIFY_EMAIL_PLACEHOLDER, shopifyEmail.emailPlaceholder)
-                        putString(SHOPIFY_SUBMIT_TEXT, shopifyEmail.submitButtonText)
-                    }
-
-                    // Create User Screen Config
-                    config.inputProps?.createUserScreen?.let { createUser ->
-                        putString(CREATE_USER_TITLE, createUser.title)
-                        putString(CREATE_USER_SUBTITLE, createUser.subTitle)
-                        putString(CREATE_USER_EMAIL_PLACEHOLDER, createUser.emailPlaceholder)
-                        putString(CREATE_USER_NAME_PLACEHOLDER, createUser.namePlaceholder)
-                        putString(CREATE_USER_DOB_PLACEHOLDER, createUser.dobPlaceholder)
-                        putString(CREATE_USER_GENDER_PLACEHOLDER, createUser.genderPlaceholder)
-                        putString(CREATE_USER_SUBMIT_TEXT, createUser.submitButtonText)
-                        putString(CREATE_USER_DOB_FORMAT, createUser.dobFormat)
-                        putString(CREATE_USER_GENDER_TITLE, createUser.genderTitle)
-                    }
-
-                    // Style Configurations
-                    config.inputProps?.let { props ->
-                        putString(SUBMIT_BUTTON_STYLE, props.submitButtonStyle?.toString())
-                        putString(INPUT_CONTAINER_STYLE, props.inputContainerStyle?.toString())
-                        putString(INPUT_STYLE, props.inputStyle?.toString())
-                        putString(TITLE_STYLE, props.titleStyle?.toString())
-                        putString(SUBTITLE_STYLE, props.subTitleStyle?.toString())
-                    }
+                    putString(CONFIG_KEY, Gson().toJson(config))
                 }
             }
         }

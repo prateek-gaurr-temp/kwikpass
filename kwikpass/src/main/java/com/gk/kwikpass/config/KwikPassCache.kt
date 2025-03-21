@@ -53,6 +53,7 @@ class KwikPassCache private constructor(context: Context) {
      * Clears the in-memory cache.
      */
     fun clearCache() {
+        println("CHACHE CLEAR FUNCTION CALLED")
         cache.clear()
     }
 

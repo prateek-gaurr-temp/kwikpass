@@ -20,7 +20,6 @@ object kwikpassInitializer {
     private var isSnowplowTrackingEnabled: Boolean = false
     private var applicationContext: Context? = null
     private var apiService: KwikPassApiService? = null
-    private lateinit var kwikPassApi: KwikPassApi
     private var idfaAidModule: IdfaAidModule? = null
 
     suspend fun initialize(

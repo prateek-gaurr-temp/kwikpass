@@ -114,7 +114,12 @@ data class LoginResponse(
 )
 
 data class LoginData(
-    val merchantResponse: MerchantResponse?
+    val merchantResponse: MerchantResponse?,
+    val phone: String?,
+    val email: String?,
+    val emailRequired: Boolean?,
+    val isSuccess: Boolean?,
+    val message: String?,
 )
 
 data class MerchantResponse(
@@ -126,11 +131,17 @@ data class MerchantResponse(
 )
 
 data class CreateUserResponse(
-    val data: CreateUserData
+    val data: CreateUserData,
+    val success: Boolean = false,
+    val status_code: Int = 0,
+    val timestamp: Long = 0,
+    val isSuccess: Boolean = false,
+    val error: String = ""
 )
 
 data class CreateUserData(
-    val merchantResponse: CreateUserMerchantResponse
+    val merchantResponse: CreateUserMerchantResponse,
+    val error: String? = null
 )
 
 data class CreateUserMerchantResponse(
@@ -139,14 +150,16 @@ data class CreateUserMerchantResponse(
 
 data class AccountCreate(
     val user: AccountUser?,
-    val accountErrors: List<String>?
+    val accountErrors: List<String>?,
+    val __typename: String? = null
 )
 
 data class AccountUser(
-    val csrfToken: String?,
     val id: String?,
     val token: String?,
-    val refreshToken: String?
+    val refreshToken: String?,
+    val csrfToken: String?,
+    val __typename: String? = null
 )
 
 data class ValidateUserTokenResponse(
@@ -173,10 +186,10 @@ data class VerifyCodeData(
     var token: String?,
     var coreToken: String?,
     val state: String?,
-    val email: String,
     val password: String?,
+    val email: String?,
     val shopifyCustomerId: String?,
-    val multipleEmail: Boolean?,
+    val multipleEmail: String?,
     val emailRequired: Boolean?,
     val merchantResponse: Any?,
     var phone: String?,
@@ -201,15 +214,8 @@ data class ShopifyEmailVerificationRequest(
     val email: String
 )
 
-data class ShopifyEmailVerifyRequest(
-    val email: String,
-    val otp: String,
-    val redirectUrl: String = "/",
-    val isMarketingEventSubscribed: Boolean
-)
-
 data class ShopifyResponse(
-    val data: ShopifyData
+    val data: ShopifyUserData?
 )
 
 data class ShopifyData(
@@ -225,4 +231,12 @@ data class ShopifyUserData(
     var activationUrl: String? = null,
     var accountActivationUrl: String? = null,
     var state: String? = null
+)
+
+// Add this new request class
+data class ShopifyEmailVerifyRequest(
+    val email: String,
+    val otp: String,
+    val redirectUrl: String = "/",
+    val isMarketingEventSubscribed: Boolean
 )
