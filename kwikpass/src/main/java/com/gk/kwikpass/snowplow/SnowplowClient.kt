@@ -10,6 +10,7 @@ import com.snowplowanalytics.snowplow.Snowplow.createTracker
 import com.snowplowanalytics.snowplow.configuration.NetworkConfiguration
 import com.snowplowanalytics.snowplow.configuration.SessionConfiguration
 import com.snowplowanalytics.snowplow.configuration.TrackerConfiguration
+import com.snowplowanalytics.snowplow.controller.TrackerController
 import com.snowplowanalytics.snowplow.network.HttpMethod
 import com.snowplowanalytics.snowplow.tracker.DevicePlatform
 import com.snowplowanalytics.snowplow.tracker.LogLevel
@@ -21,7 +22,7 @@ import java.util.concurrent.TimeUnit
 
 class SnowplowClient {
     companion object {
-        private var snowplowTracker: Tracker? = null
+        private var snowplowTracker: TrackerController? = null
 
         private fun generateUUID(): String {
             return UUID.randomUUID().toString()
@@ -40,7 +41,7 @@ class SnowplowClient {
 
                 val shopDomain = cache.getValue(KwikPassKeys.GK_MERCHANT_URL)
                 val appId = if (!shopDomain.isNullOrEmpty() && mid.isNotEmpty()) {
-                    "$shopDomain-$mid"
+                    "$mid"
                 } else {
                     ""
                 }
@@ -66,7 +67,7 @@ class SnowplowClient {
                     TimeMeasure(30, TimeUnit.SECONDS)
                 )
 
-                createTracker(
+                snowplowTracker = createTracker(
                     context,
                     "appTracker",
                     networkConfig,
@@ -83,7 +84,7 @@ class SnowplowClient {
             context: Context,
             environment: String? = null,
             mid: String? = null
-        ): Tracker? {
+        ): TrackerController? {
             val CacheInstance = KwikPassCache.getInstance(context)
             val snowplowTrackingEnabled = CacheInstance.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED)
 

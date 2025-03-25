@@ -1,7 +1,6 @@
 package com.gk.kwikpass.snowplow
 
 import android.content.Context
-import android.os.Build
 import com.gk.kwikpass.IdfaAid.IdfaAidModule
 import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassConfig
@@ -9,7 +8,6 @@ import com.gk.kwikpass.config.KwikPassKeys
 import com.gk.kwikpass.initializer.ApplicationCtx
 import com.snowplowanalytics.snowplow.event.PageView
 import com.snowplowanalytics.snowplow.event.SelfDescribing
-import com.snowplowanalytics.snowplow.event.Structured
 import com.snowplowanalytics.snowplow.payload.SelfDescribingJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,9 +28,10 @@ object Snowplow {
     )
 
     data class TrackProductEventArgs(
+        val cart_id: String,
         val product_id: String,
         val pageUrl: String,
-        val variant_id: String? = null,
+        val variant_id: String,
         val img_url: String? = null,
         val name: String? = null,
         val price: String? = null,
@@ -44,9 +43,16 @@ object Snowplow {
     )
 
     data class TrackCollectionsEventArgs(
+        val cart_id: String,
         val collection_id: String,
         val name: String,
-        val cart_id: String? = null,
+        val image_url: String? = null,
+        val handle: String? = null
+    )
+
+    data class CollectionContext(
+        val collection_id: String,
+        val name: String,
         val image_url: String? = null,
         val handle: String? = null
     )
@@ -75,97 +81,227 @@ object Snowplow {
 
     // Helper functions
     private suspend fun getEnvironment(context: Context): String {
-        return KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
+        val env = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_ENVIRONMENT)
+        return when (env) {
+            "production" -> "production"
+            else -> "sandbox"
+        }
     }
 
     private suspend fun createContext(schemaPath: String, data: Map<String, Any>): SelfDescribingJson {
         val environment = getEnvironment(ApplicationCtx.get())
         val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/$schemaPath"
-        return SelfDescribingJson(schema, JSONObject(data.toString()))
+
+        val json = SelfDescribingJson(
+            schema,
+            data
+        )
+
+        return json
     }
 
-    private suspend fun getCartContext(cartId: String): SelfDescribingJson {
-        return createContext("cart/jsonschema/1-0-0", mapOf(
-            "id" to cartId,
-            "token" to cartId
-        ))
+    private suspend fun getCartContext(cartId: String): SelfDescribingJson? {
+        if (cartId.isBlank()) return null
+        return SelfDescribingJson(
+            "iglu:com.shopify/cart/jsonschema/1-0-0",
+            mapOf(
+                "id" to cartId,
+                "token" to cartId
+            ))
     }
 
-    private suspend fun getUserContext(context: Context): SelfDescribingJson? {
+    private suspend fun getUserContext(): SelfDescribingJson? {
+        val context = ApplicationCtx.get()
         val userJson = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_VERIFIED_USER)
-        if (userJson.isNullOrEmpty()) return null
 
-        val user = JSONObject(userJson)
-        val phone = user.optString("phone", "").replace("^+91".toRegex(), "")
-        val numericPhoneNumber = phone.toIntOrNull()
+        if(userJson == null) return null
+
+        // Initialize with empty JSONObject
+        val user = try {
+            if (!userJson.isNullOrEmpty()) {
+                // Try parsing as regular JSON first
+                try {
+                    JSONObject(userJson)
+                } catch (e: Exception) {
+                    // If that fails, try parsing as key=value format
+                    val map = userJson
+                        .trim('{', '}')  // Remove outer braces
+                        .split(",")      // Split by comma
+                        .map { it.trim() }.associate { pair ->
+                            val (key, value) = pair.split("=", limit = 2)
+                            key.trim() to value.trim()
+                        }
+                    JSONObject(map)
+                }
+            } else {
+                JSONObject()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            JSONObject()
+        }
+
+        // Helper function to safely get string values
+        fun safeGetString(key: String): String {
+            return try {
+                user.optString(key, "")
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
+        val phone = safeGetString("phone")
+        val cleanedPhone = phone.replace("^+91".toRegex(), "").replace("[^0-9]".toRegex(), "")
+        
+        // Try to convert to Long first (since phone numbers can be too large for Int)
+        val numericPhoneNumber = try {
+            cleanedPhone.toLongOrNull()
+        } catch (e: Exception) {
+            null
+        }
+
+        val email = safeGetString("email")
+
+        if (numericPhoneNumber == null && email.isBlank()) {
+            return null
+        }
 
         return createContext("user/jsonschema/1-0-0", mapOf(
-            "phone" to (numericPhoneNumber?.toString() ?: ""),
-            "email" to user.optString("email", "")
+            "phone" to (if (numericPhoneNumber != null) numericPhoneNumber.toString() else ""),
+            "email" to email
         ))
     }
 
-    private suspend fun getProductContext(args: TrackProductEventArgs): SelfDescribingJson {
+    private suspend fun getProductContext(args: TrackProductEventContext): SelfDescribingJson {
         return createContext("product/jsonschema/1-1-0", mapOf(
             "product_id" to args.product_id,
             "img_url" to (args.img_url ?: ""),
-            "variant_id" to (args.variant_id ?: ""),
-            "product_name" to (args.name ?: ""),
-            "product_price" to (args.price ?: ""),
-            "product_handle" to (args.handle ?: ""),
-            "type" to "product"
+            "variant_id" to args.variant_id,
+            "product_name" to (args.product_name ?: ""),
+            "product_price" to (args.product_price ?: ""),
+            "product_handle" to (args.product_handle ?: ""),
+            "type" to (args.type ?: "product")
         ))
     }
 
-    private suspend fun getDeviceInfoContext(context: Context): SelfDescribingJson {
+    private suspend fun getDeviceInfoContext(): SelfDescribingJson {
+        val context = ApplicationCtx.get()
         val deviceFCM = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_NOTIFICATION_TOKEN)
         val deviceInfoJson = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_DEVICE_INFO)
-        val deviceInfo = if (!deviceInfoJson.isNullOrEmpty()) JSONObject(deviceInfoJson) else JSONObject()
+        
+        // Initialize with empty JSONObject
+        val deviceInfo = try {
+            if (!deviceInfoJson.isNullOrEmpty()) {
+                // Convert the string to a map first
+                val map = deviceInfoJson
+                    .trim('{', '}')  // Remove outer braces
+                    .split(",")      // Split by comma
+                    .map { it.trim() }.associate { pair ->
+                        val (key, value) = pair.split("=", limit = 2)
+                        key.trim() to value.trim()
+                    }
+
+                // Convert map to JSONObject
+                JSONObject(map)
+            } else {
+                JSONObject()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            JSONObject()
+        }
 
         val advertisingInfo = IdfaAidModule.getInstance(context).getAdvertisingInfo()
 
+        // Helper function to safely get string values
+        fun safeGetString(key: String) = try {
+            deviceInfo.optString(key, "")
+        } catch (e: Exception) {
+            ""
+        }
+
         return createContext("user_device/jsonschema/1-0-0", mapOf(
-            "device_id" to deviceInfo.optString(KwikPassKeys.GK_DEVICE_UNIQUE_ID, ""),
-            "android_ad_id" to (advertisingInfo.id ?: ""),
+            "device_id" to safeGetString(KwikPassKeys.GK_DEVICE_UNIQUE_ID),
+            "android_ad_id" to (advertisingInfo.id ?: "").toString(),
             "ios_ad_id" to "",
-            "fcm_token" to (deviceFCM ?: ""),
-            "app_domain" to deviceInfo.optString(KwikPassKeys.GK_APP_DOMAIN, ""),
+            "fcm_token" to (deviceFCM ?: "dRJ1EO12QgGeWxw2GJkymY:APA91bH2NMhWoJVHDTdvXUNqCoD9-AKUdyLo16iPAIzumwM9J57lAQE7Bw6KPE1tEwfU5Abzi594ZuVvlSApI0lXgmiWNGXqhdJS2n7mo3eNMxwf2yspXx0").toString(),
+            "app_domain" to safeGetString(KwikPassKeys.GK_APP_DOMAIN),
             "device_type" to "android",
-            "app_version" to deviceInfo.optString(KwikPassKeys.GK_APP_VERSION, "")
+            "app_version" to safeGetString(KwikPassKeys.GK_APP_VERSION)
         ))
     }
 
+    private fun trimCartId(cartId: String): String {
+        return cartId.split("/").lastOrNull() ?: cartId
+    }
+
     // Event tracking functions
-    suspend fun trackProductEvent(context: Context, args: TrackProductEventArgs) {
+    suspend fun trackProductEvent(args: TrackProductEventArgs) {
+        val context = ApplicationCtx.get()
+
         withContext(Dispatchers.IO) {
             try {
-                val isTrackingEnabled = KwikPassCache.getInstance(context)
-                    .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
+                val cache = KwikPassCache.getInstance(context)
+                val isTrackingEnabled = cache.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
                 if (!isTrackingEnabled) return@withContext
 
-                val tracker = SnowplowClient.getSnowplowClient(context)
+                val mid = cache.getValue(KwikPassKeys.GK_MERCHANT_ID)
+                val env = cache.getValue(KwikPassKeys.GK_ENVIRONMENT)
+
+                val tracker = SnowplowClient.getSnowplowClient(context, env, mid)
                 if (tracker == null) return@withContext
 
-//                val pageView = PageView()
-//                    .pageUrl(args.pageUrl)
-//                    .pageTitle(args.name ?: "")
-//                    .productId(args.product_id)
-//                    .variantId(args.variant_id)
-//
-//                val contexts = listOfNotNull(
-//                    getProductContext(args),
-//                    getUserContext(context),
-//                    getDeviceInfoContext(context)
-//                )
-//
-//                tracker.track(pageView, contexts)
+                var cartId = args.cart_id
+                if (cartId.contains("gid://shopify/Cart/")) {
+                    cartId = trimCartId(cartId)
+                }
+
+                val pageView = PageView(args.pageUrl)
+                    .pageTitle(args.name ?: "")
+
+                val contextDetails = TrackProductEventContext(
+                    product_id = args.product_id,
+                    img_url = args.img_url ?: "",
+                    variant_id = args.variant_id,
+                    product_name = args.name ?: "",
+                    product_price = args.price ?: "",
+                    product_handle = args.handle ?: "",
+                    type = "product"
+                )
+
+                // Get all contexts with null safety
+                val productJson = getProductContext(contextDetails)
+                if (productJson != null) {
+                    pageView.entities.add(productJson)
+                }
+
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    pageView.entities.add(deviceJson)
+                }
+
+                if (!cartId.isNullOrBlank()) {
+                    val cartJson = getCartContext(cartId)
+                    if (cartJson != null) {
+                        pageView.entities.add(cartJson)
+                    }
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    pageView.entities.add(userJson)
+                }
+
+                println("PRODUCT EVENT TRACKING ENTITIES ${pageView.entities}")
+                tracker.track(pageView)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    suspend fun trackCartEvent(context: Context, args: TrackCartEventArgs) {
+    suspend fun trackCartEvent(args: TrackCartEventArgs) {
+        val context = ApplicationCtx.get()
         withContext(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
@@ -179,24 +315,41 @@ object Snowplow {
                 val tracker = SnowplowClient.getSnowplowClient(context)
                 if (tracker == null) return@withContext
 
-//                val pageView = PageView()
-//                    .pageUrl(pageUrl)
-//                    .pageTitle("Cart")
-//
-//                val contexts = listOfNotNull(
-//                    getCartContext(args.cart_id),
-//                    getUserContext(context),
-//                    getDeviceInfoContext(context)
-//                )
-//
-//                tracker.track(pageView, contexts)
+                var cartId = args.cart_id
+                if (cartId.contains("gid://shopify/Cart/")) {
+                    cartId = trimCartId(cartId)
+                }
+
+                val pageView = PageView(pageUrl)
+
+                // Get all contexts with null safety
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    pageView.entities.add(deviceJson)
+                }
+
+                if (!cartId.isNullOrBlank()) {
+                    val cartJson = getCartContext(cartId)
+                    if (cartJson != null) {
+                        pageView.entities.add(cartJson)
+                    }
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    pageView.entities.add(userJson)
+                }
+
+                println("CART EVENT TRACKING ENTITIES ${pageView.entities}")
+                tracker.track(pageView)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    suspend fun trackCollectionsEvent(context: Context, args: TrackCollectionsEventArgs) {
+    suspend fun trackCollectionsEvent(args: TrackCollectionsEventArgs) {
+        val context = ApplicationCtx.get()
         withContext(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
@@ -212,23 +365,42 @@ object Snowplow {
                 val tracker = SnowplowClient.getSnowplowClient(context)
                 if (tracker == null) return@withContext
 
-//                val pageView = PageView()
-//                    .pageUrl(pageUrl)
-//                    .pageTitle(args.name)
-//
-//                val contexts = listOfNotNull(
-//                    getUserContext(context),
-//                    getDeviceInfoContext(context)
-//                )
-//
-//                tracker.track(pageView, contexts)
+                var cartId = args.cart_id
+                if (cartId.contains("gid://shopify/Cart/")) {
+                    cartId = trimCartId(cartId)
+                }
+
+                val pageView = PageView(pageUrl)
+                    .pageTitle(args.name)
+
+                // Get all contexts with null safety
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    pageView.entities.add(deviceJson)
+                }
+
+                if (!cartId.isNullOrBlank()) {
+                    val cartJson = getCartContext(cartId)
+                    if (cartJson != null) {
+                        pageView.entities.add(cartJson)
+                    }
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    pageView.entities.add(userJson)
+                }
+
+                println("COLLECTIONS EVENT TRACKING ENTITIES ${pageView.entities}")
+                tracker.track(pageView)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    suspend fun trackOtherEvent(context: Context, args: TrackOtherEventArgs? = null) {
+    suspend fun trackOtherEvent(args: TrackOtherEventArgs? = null) {
+        val context = ApplicationCtx.get()
         withContext(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
@@ -242,46 +414,80 @@ object Snowplow {
                 val tracker = SnowplowClient.getSnowplowClient(context)
                 if (tracker == null) return@withContext
 
-//                val pageView = PageView()
-//                    .pageUrl(pageUrl)
-//                    .pageTitle("Other")
-//
-//                val contexts = listOfNotNull(
-//                    args?.cart_id?.let { getCartContext(it) },
-//                    getUserContext(context),
-//                    getDeviceInfoContext(context)
-//                )
-//
-//                tracker.track(pageView, contexts)
+                var cartId = args?.cart_id ?: ""
+                if (cartId.contains("gid://shopify/Cart/")) {
+                    cartId = trimCartId(cartId)
+                }
+
+                val pageView = PageView(pageUrl)
+
+                // Get all contexts with null safety
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    pageView.entities.add(deviceJson)
+                }
+
+                if (!cartId.isNullOrBlank()) {
+                    val cartJson = getCartContext(cartId)
+                    if (cartJson != null) {
+                        pageView.entities.add(cartJson)
+                    }
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    pageView.entities.add(userJson)
+                }
+
+                println("OTHER EVENT TRACKING ENTITIES ${pageView.entities}")
+                tracker.track(pageView)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
     }
 
-    suspend fun sendCustomEventToSnowPlow(context: Context, eventObject: Map<String, Any>) {
+    suspend fun sendCustomEventToSnowPlow(eventObject: Map<String, Any>) {
+        val context = ApplicationCtx.get()
         withContext(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
                 if (!isTrackingEnabled) return@withContext
 
-                val tracker = SnowplowClient.getSnowplowClient(context)
+                val mid = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_MERCHANT_ID) ?: ""
+                val env = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
+
+                val tracker = SnowplowClient.getSnowplowClient(context, env, mid)
                 if (tracker == null) return@withContext
 
                 val environment = getEnvironment(context)
                 val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/structured/jsonschema/1-0-0"
 
+                // Create the event data with filtered values
                 val filteredEvents = filterEventValuesAsPerStructSchema(eventObject)
-                val selfDescribingJson = SelfDescribingJson(schema, JSONObject(filteredEvents.toString()))
-
-                val contexts = listOfNotNull(
-                    getUserContext(context),
-                    getDeviceInfoContext(context)
+                
+                // Create the event data map
+                val eventData =  SelfDescribingJson(
+                    schema, filteredEvents
                 )
 
-                val event = SelfDescribing(selfDescribingJson)
-//                tracker.track(event, contexts)
+                // Create and track the event
+                val event = SelfDescribing(eventData)
+
+                // Add common contexts if available
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    event.entities.add(deviceJson)
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    event.entities.add(userJson)
+                }
+
+                println("CUSTOM EVENT TRACKING ENTITIES ${event.entities}")
+                tracker.track(event)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -298,26 +504,45 @@ object Snowplow {
                 val tracker = SnowplowClient.getSnowplowClient(context)
                 if (tracker == null) return@withContext
 
-//                val structured = Structured()
-//                    .category(args.category)
-//                    .action(args.action)
-//                    .apply {
-//                        args.label?.let { label(it) }
-//                        args.property?.let { property(it) }
-//                        args.value?.let { value(it) }
-//                        args.property_1?.let { property(it) }
-//                        args.value_1?.let { value(it) }
-//                        args.property_2?.let { property(it) }
-//                        args.value_2?.let { value(it) }
-//                        args.property_3?.let { property(it) }
-//                        args.value_3?.let { value(it) }
-//                        args.property_4?.let { property(it) }
-//                        args.value_4?.let { value(it) }
-//                        args.property_5?.let { property(it) }
-//                        args.value_5?.let { value(it) }
-//                    }
+                val environment = getEnvironment(context)
+                val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/structured/jsonschema/1-0-0"
 
-//                tracker.track(structured)
+                val eventData = SelfDescribingJson(
+                    schema,
+                    mapOf(
+                        "category" to args.category,
+                        "action" to args.action,
+                        "label" to (args.label ?: ""),
+                        "property" to (args.property ?: ""),
+                        "value" to (args.value ?: 0),
+                        "property_1" to (args.property_1 ?: ""),
+                        "value_1" to (args.value_1 ?: ""),
+                        "property_2" to (args.property_2 ?: ""),
+                        "value_2" to (args.value_2 ?: ""),
+                        "property_3" to (args.property_3 ?: ""),
+                        "value_3" to (args.value_3 ?: ""),
+                        "property_4" to (args.property_4 ?: ""),
+                        "value_4" to (args.value_4 ?: ""),
+                        "property_5" to (args.property_5 ?: ""),
+                        "value_5" to (args.value_5 ?: "")
+                    )
+                )
+
+                val event = SelfDescribing(eventData)
+
+                // Add common contexts if available
+                val deviceJson = getDeviceInfoContext()
+                if (deviceJson != null) {
+                    event.entities.add(deviceJson)
+                }
+
+                val userJson = getUserContext()
+                if (userJson != null) {
+                    event.entities.add(userJson)
+                }
+
+                println("STRUCTURED EVENT TRACKING ENTITIES ${event.entities}")
+                tracker.track(event)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

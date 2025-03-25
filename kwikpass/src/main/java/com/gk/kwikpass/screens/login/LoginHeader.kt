@@ -1,9 +1,5 @@
 package com.gk.kwikpass.screens.login
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -24,6 +19,8 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.screens.login.ui.theme.KwikpassTheme
+import com.gk.kwikpass.utils.ModifierWrapper
+import com.gk.kwikpass.utils.applyStyles
 
 @Composable
 fun LoginHeader(
@@ -32,13 +29,21 @@ fun LoginHeader(
     enableGuestLogin: Boolean = false,
     guestLoginButtonLabel: String = "Skip",
     onGuestLoginClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    bannerImageStyle: ModifierWrapper? = null,
+    logoStyle: ModifierWrapper? = null,
+    imageContainerStyle: ModifierWrapper? = null,
+    guestContainerStyle: ModifierWrapper? = null,
+    guestButtonContainerColor: Color? = Color.Black,
+    guestButtonContentColor: Color? = Color.White
 ) {
 
     var appContext = ApplicationCtx.get()
 
     Box(
-        modifier = modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .applyStyles(imageContainerStyle),
         contentAlignment = Alignment.TopCenter
     ) {
         // Banner/Logo Section
@@ -46,7 +51,19 @@ fun LoginHeader(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (bannerImage != null) 260.dp else 200.dp).padding(bottom = 12.dp),
+                    .applyStyles(bannerImageStyle)
+                    .let { mod ->
+                        if (bannerImageStyle == null) {
+                            mod.then(
+                                if (bannerImage != null)
+                                    Modifier.height(260.dp)
+                                else
+                                    Modifier.height(200.dp)
+                            ).padding(bottom = 12.dp)
+                        } else {
+                            mod.padding(bottom = 12.dp)
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 when {
@@ -56,14 +73,14 @@ fun LoginHeader(
                                 model = bannerImage,
                                 contentDescription = "Banner Image",
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.FillBounds
                             )
-                        } else  {
+                        } else {
                             Image(
                                 painter = painterResource(id = appContext.resources.getIdentifier(bannerImage, "drawable", appContext.packageName)),
                                 contentDescription = "Banner Image",
                                 modifier = Modifier.fillMaxSize(),
-                                contentScale = ContentScale.Crop
+                                contentScale = ContentScale.FillBounds
                             )
                         }
                     }
@@ -71,7 +88,8 @@ fun LoginHeader(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(80.dp), // 40% of 200dp
+                                .height(80.dp)
+                                .applyStyles(logoStyle),
                             contentAlignment = Alignment.Center
                         ) {
                             if (logo.startsWith("http")) {
@@ -102,10 +120,11 @@ fun LoginHeader(
                 onClick = onGuestLoginClick,
                 modifier = Modifier
                     .padding(top = 20.dp, end = 20.dp)
-                    .align(Alignment.TopEnd),
+                    .align(Alignment.TopEnd)
+                    .applyStyles(guestContainerStyle),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Black,
-                    contentColor = Color.White
+                    containerColor = guestButtonContainerColor ?: Color.Black,
+                    contentColor = guestButtonContentColor ?: Color.White
                 ),
                 shape = RoundedCornerShape(20.dp),
                 contentPadding = PaddingValues(horizontal = 15.dp, vertical = 6.dp)

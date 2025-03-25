@@ -16,6 +16,50 @@
         app:layout_constraintTop_toTopOf="parent"
         android:layout_marginTop="16dp"/>
 
+    <!-- New Action Button -->
+    <Button
+        android:id="@+id/btnAction"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Track Product Event"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnLogin"
+        android:layout_marginTop="16dp"/>
+
+    <!-- Track Cart Button -->
+    <Button
+        android:id="@+id/btnTrackCart"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Track Cart Event"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnAction"
+        android:layout_marginTop="16dp"/>
+
+    <!-- Track Collection Button -->
+    <Button
+        android:id="@+id/btnTrackCollection"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Track Collection Event"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnTrackCart"
+        android:layout_marginTop="16dp"/>
+
+    <!-- Track Custom Event Button -->
+    <Button
+        android:id="@+id/btnTrackCustomEvent"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Track Custom Event"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/btnTrackCollection"
+        android:layout_marginTop="16dp"/>
+
     <!-- Fragment container -->
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/fragment_container"

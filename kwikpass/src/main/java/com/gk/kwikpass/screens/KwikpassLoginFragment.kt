@@ -52,8 +52,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.gk.kwikpass.initializer.kwikpassInitializer
 import com.gk.kwikpass.screens.createaccount.CreateAccountData
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import com.gk.kwikpass.utils.ModifierWrapper
 
 // Form state data class equivalent to React Native's LoginForm
 data class LoginFormState(
@@ -86,6 +85,7 @@ data class LoginFormErrors(
 interface KwikpassCallback {
     fun onSuccess(data: MutableMap<String, Any?>?)
     fun onError(error: String)
+    fun onGuestLogin()
 }
 
 // ViewModel for managing form state
@@ -233,8 +233,27 @@ data class KwikpassConfig(
     val enableGuestLogin: Boolean = false,
     val guestLoginButtonLabel: String? = null,
     val inputProps: TextInputConfig? = null,
-    val merchantType: String = "custom"
-)
+    val merchantType: String = "custom",
+
+    // header styles
+    val bannerImageStyle: ModifierWrapper? = null,
+    val logoStyle: ModifierWrapper? = null,
+    val imageContainerStyle: ModifierWrapper? = null,
+    val guestContainerStyle: ModifierWrapper? = null,
+    val guestButtonContainerColor: Color? = Color.Black,
+    val guestButtonContentColor: Color? = Color.White
+) {
+    companion object {
+        private val defaultFooterUrls = listOf(
+            FooterUrl("Privacy Policy", "https://google.com/"),
+            FooterUrl("Terms & Conditions", "https://google.com/")
+        )
+
+        fun getFooterUrls(customUrls: List<FooterUrl>?): List<FooterUrl> {
+            return customUrls ?: defaultFooterUrls
+        }
+    }
+}
 
 class KwikpassLoginFragment : Fragment() {
     private val loginViewModel: LoginViewModel by viewModels()
@@ -278,7 +297,7 @@ class KwikpassLoginFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View {
         // Parse configuration from arguments using Gson
-        config = arguments?.getString(CONFIG_KEY)?.let { 
+        config = arguments?.getString(CONFIG_KEY)?.let {
             Gson().fromJson(it, KwikpassConfig::class.java)
         }
 
@@ -390,11 +409,11 @@ class KwikpassLoginFragment : Fragment() {
                     result.onSuccess { response ->
                         println("RESPONSE TYPE: ${response::class.java.simpleName}")
                         println("RESPONSE AFTER SUCCESS IS $response")
-                        
+
                         // Convert the response to JSON string first
                         val responseJson = gson.toJson(response)
                         println("RESPONSE AS JSON: $responseJson")
-                        
+
                         // Parse the nested structure
                         val responseMap = gson.fromJson(responseJson, Map::class.java)
                         if(merchantType == "shopify") {
@@ -638,7 +657,7 @@ class KwikpassLoginFragment : Fragment() {
 
                     result.onSuccess { response ->
                         println("SHOPIFY EMAIL VERIFICATION RESPONSE: $response")
-                        
+
                         // Convert response to JSON string
                         val responseJson = gson.toJson(response)
                         val responseMap = gson.fromJson(responseJson, Map::class.java)
@@ -697,15 +716,21 @@ class KwikpassLoginFragment : Fragment() {
                     bannerImage = config?.bannerImage,
                     enableGuestLogin = config?.enableGuestLogin ?: false,
                     guestLoginButtonLabel = config?.guestLoginButtonLabel ?: "Skip",
-                    onGuestLoginClick = { /* Handle skip */ },
-                    modifier = Modifier.fillMaxWidth()
+                    onGuestLoginClick = { callback?.onGuestLogin() },
+                    modifier = Modifier.fillMaxWidth(),
+                    bannerImageStyle = config?.bannerImageStyle,
+                    logoStyle = config?.logoStyle,
+                    imageContainerStyle = config?.imageContainerStyle,
+                    guestContainerStyle = config?.guestContainerStyle,
+                    guestButtonContentColor = config?.guestButtonContentColor,
+                    guestButtonContainerColor = config?.guestButtonContainerColor
                 )
 
                 if (!isUserLoggedIn) {
                     when {
                         formState.emailOtpSent -> {
                             VerifyScreen(
-                                onVerify = { 
+                                onVerify = {
                                     handleShopifyEmailOTPVerification(formState.shopifyEmail, formState.shopifyOTP)
                                 },
                                 onEdit = {
@@ -726,16 +751,16 @@ class KwikpassLoginFragment : Fragment() {
                                 resetOtp = verifyUiState.shouldResetOtp,
                                 currentOtp = formState.shopifyOTP,
                                 loadingText = config?.inputProps?.otpVerificationScreen?.loadingText ?: "Signing you in...",
-                                loadingTextStyle = TextStyle(
-                                    color = Color.White,
-                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+//                                loadingTextStyle = TextStyle(
+//                                    color = Color.White,
+//                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
+//                                    fontWeight = FontWeight.Medium
+//                                )
                             )
                         }
                         formState.otpSent -> {
                             VerifyScreen(
-                                onVerify = { 
+                                onVerify = {
                                     handleVerifyOTP(formState.phone, formState.otp)
                                 },
                                 onEdit = {
@@ -758,11 +783,11 @@ class KwikpassLoginFragment : Fragment() {
                                 resetOtp = verifyUiState.shouldResetOtp,
                                 currentOtp = formState.otp,
                                 loadingText = config?.inputProps?.otpVerificationScreen?.loadingText ?: "Signing you in...",
-                                loadingTextStyle = TextStyle(
-                                    color = Color.White,
-                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+//                                loadingTextStyle = TextStyle(
+//                                    color = Color.White,
+//                                    fontSize = (config?.inputProps?.otpVerificationScreen?.loadingTextStyle?.fontSize?.toIntOrNull() ?: 16).sp,
+//                                    fontWeight = FontWeight.Medium
+//                                )
                             )
                         }
                         formState.isNewUser -> {
@@ -796,7 +821,7 @@ class KwikpassLoginFragment : Fragment() {
                         }
                         else -> {
                             LoginScreen(
-                                onSubmit = { 
+                                onSubmit = {
                                     handleSendVerificationCode(formState.phone, formState.notifications)
                                 },
                                 title = config?.inputProps?.phoneAuthScreen?.title,
@@ -848,16 +873,16 @@ class KwikpassLoginFragment : Fragment() {
                             ),
                             textAlign = TextAlign.Center
                         )
-                        
+
                         Spacer(modifier = Modifier.height(8.dp))
-                        
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            config.footerUrls?.forEachIndexed { index, url ->
+                            KwikpassConfig.getFooterUrls(config?.footerUrls).forEachIndexed { index, url ->
                                 Text(
                                     text = url.label,
                                     style = MaterialTheme.typography.bodySmall.copy(
@@ -893,4 +918,4 @@ class KwikpassLoginFragment : Fragment() {
             }
         }
     }
-} 
+}
