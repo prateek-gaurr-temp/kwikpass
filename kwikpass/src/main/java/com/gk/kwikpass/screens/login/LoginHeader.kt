@@ -37,8 +37,6 @@ fun LoginHeader(
 
     var appContext = ApplicationCtx.get()
 
-    println(" EXAMPLE DRAWABLE ${appContext.resources.getIdentifier(logo,"drawable",appContext.packageName)}")
-
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.TopCenter
@@ -48,7 +46,7 @@ fun LoginHeader(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(if (bannerImage != null) 300.dp else 200.dp),
+                    .height(if (bannerImage != null) 260.dp else 200.dp).padding(bottom = 12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 when {

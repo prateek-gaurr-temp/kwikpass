@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.kwikpass"
-        minSdk = 24
+        minSdk = 28
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -42,6 +42,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    implementation("com.google.code.gson:gson:2.10.1")
 
 
     testImplementation(libs.junit)

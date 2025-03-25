@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.jetbrains.kotlin.android)
+    id("kotlin-parcelize")
 }
 
 android {
@@ -8,7 +9,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        minSdk = 24
+        minSdk = 28
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles("consumer-rules.pro")
@@ -83,5 +84,9 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 
     // snowplow
-    implementation("com.snowplowanalytics:snowplow-android-tracker:6.+")
+    implementation("com.snowplowanalytics:snowplow-android-tracker:6.0.+")
+
+    implementation("com.google.android.gms:play-services-auth:20.2.0")
+    implementation("com.google.android.gms:play-services-auth-api-phone:18.0.1")
+    implementation("com.google.android.gms:play-services-ads-identifier:18.0.1")
 }

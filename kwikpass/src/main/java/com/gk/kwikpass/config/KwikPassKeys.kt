@@ -48,4 +48,5 @@ object KwikPassKeys {
     // Notification Settings
     const val GK_NOTIFICATION_TOKEN = "gk-notification-token"
     const val GK_NOTIFICATION_ENABLED = "gk-notification-enabled"
-} 
+    const val GK_KP_TOKEN = "kpToken"
+}

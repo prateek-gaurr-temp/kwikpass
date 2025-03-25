@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -14,15 +15,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 
 @SuppressLint("RememberReturnType")
 @Composable
 fun LoginScreen(
     onSubmit: () -> Unit,
     onPhoneChange: (String) -> Unit,
+    onNotificationsChange: (Boolean) -> Unit,
     title: String? = null,
     subTitle: String? = null,
     errors: Map<String, String> = emptyMap(),
@@ -30,15 +35,21 @@ fun LoginScreen(
     isLoading: Boolean = false,
     placeholderText: String = "Enter your phone",
     updateText: String = "Get updates on WhatsApp",
+    initialPhoneNumber: String = "",
+    initialNotifications: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    var phoneNumber by remember { mutableStateOf("") }
-    var notifications by remember { mutableStateOf(false) }
+    var phoneNumber by remember { mutableStateOf(initialPhoneNumber) }
+    var notifications by remember { mutableStateOf(initialNotifications) }
+    val focusManager = LocalFocusManager.current
+
+    // Phone number validation
+    val isValidPhoneNumber = phoneNumber.length == 10 && phoneNumber.all { it.isDigit() }
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(16.dp),
+            .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Title
@@ -64,7 +75,7 @@ fun LoginScreen(
                 TextField(
                     value = phoneNumber,
                     onValueChange = { 
-                        if (it.length <= 10) {
+                        if (it.length <= 10 && it.all { char -> char.isDigit() }) {
                             phoneNumber = it
                             onPhoneChange(it)
                         }
@@ -73,19 +84,40 @@ fun LoginScreen(
                         .fillMaxWidth()
                         .border(
                             width = 1.dp,
-                            color = if (errors["phone"] != null) Color.Red else Color.Gray,
+                            color = if (errors["phone"] != null && errors["phone"]?.isNotEmpty() == true) Color.Red else Color.Black,
                             shape = RoundedCornerShape(8.dp)
                         ),
-                    placeholder = { Text(placeholderText, color = Color.Gray) },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    placeholder = { 
+                        Text(
+                            text = placeholderText, 
+                            color = Color.Gray.copy(alpha = 0.6f)
+                        ) 
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Phone,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            focusManager.clearFocus()
+                        }
+                    ),
                     enabled = !isLoading,
                     colors = TextFieldDefaults.colors(
                         unfocusedContainerColor = Color.Transparent,
                         focusedContainerColor = Color.Transparent,
                         unfocusedIndicatorColor = Color.Transparent,
-                        focusedIndicatorColor = Color.Transparent
+                        focusedIndicatorColor = Color.Transparent,
+                        disabledTextColor = Color.Black,
+                        disabledContainerColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        disabledPlaceholderColor = Color.Gray.copy(alpha = 0.6f),
+                        cursorColor = Color(0xFF007AFF)
                     ),
-                    textStyle = TextStyle(fontSize = 18.sp)
+                    textStyle = TextStyle(
+                        fontSize = 18.sp,
+                        color = Color.Black
+                    )
                 )
 
                 // Error message
@@ -107,8 +139,11 @@ fun LoginScreen(
             modifier =  Modifier
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
-                    indication = null  // This removes the ripple effect
-                ) { notifications = !notifications }
+                    indication = null
+                ) { 
+                    notifications = !notifications
+                    onNotificationsChange(notifications)
+                }
                 .padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -147,7 +182,7 @@ fun LoginScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(50.dp),
-            enabled = !isLoading,
+            enabled = true,  // Always keep button enabled
             shape = RoundedCornerShape(6.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF007AFF)

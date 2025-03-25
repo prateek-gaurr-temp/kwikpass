@@ -39,4 +39,4 @@ object KwikPassConfig {
             else -> production
         }
     }
-} 
+}
