@@ -6,10 +6,14 @@ import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassConfig
 import com.gk.kwikpass.config.KwikPassKeys
 import com.gk.kwikpass.initializer.ApplicationCtx
+import com.gk.kwikpass.utils.CoroutineUtils
 import com.snowplowanalytics.snowplow.event.PageView
 import com.snowplowanalytics.snowplow.event.SelfDescribing
 import com.snowplowanalytics.snowplow.payload.SelfDescribingJson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
@@ -50,13 +54,6 @@ object Snowplow {
         val handle: String? = null
     )
 
-    data class CollectionContext(
-        val collection_id: String,
-        val name: String,
-        val image_url: String? = null,
-        val handle: String? = null
-    )
-
     data class TrackOtherEventArgs(
         val cart_id: String? = null
     )
@@ -91,12 +88,7 @@ object Snowplow {
     private suspend fun createContext(schemaPath: String, data: Map<String, Any>): SelfDescribingJson {
         val environment = getEnvironment(ApplicationCtx.get())
         val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/$schemaPath"
-
-        val json = SelfDescribingJson(
-            schema,
-            data
-        )
-
+        val json = SelfDescribingJson(schema, data)
         return json
     }
 
@@ -236,20 +228,19 @@ object Snowplow {
     }
 
     // Event tracking functions
-    suspend fun trackProductEvent(args: TrackProductEventArgs) {
+    fun trackProductEvent(args: TrackProductEventArgs) {
         val context = ApplicationCtx.get()
 
-        withContext(Dispatchers.IO) {
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val cache = KwikPassCache.getInstance(context)
                 val isTrackingEnabled = cache.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val mid = cache.getValue(KwikPassKeys.GK_MERCHANT_ID)
                 val env = cache.getValue(KwikPassKeys.GK_ENVIRONMENT)
 
-                val tracker = SnowplowClient.getSnowplowClient(context, env, mid)
-                if (tracker == null) return@withContext
+                val tracker = SnowplowClient.getSnowplowClient(context, env, mid) ?: return@launch
 
                 var cartId = args.cart_id
                 if (cartId.contains("gid://shopify/Cart/")) {
@@ -271,16 +262,12 @@ object Snowplow {
 
                 // Get all contexts with null safety
                 val productJson = getProductContext(contextDetails)
-                if (productJson != null) {
-                    pageView.entities.add(productJson)
-                }
+                pageView.entities.add(productJson)
 
                 val deviceJson = getDeviceInfoContext()
-                if (deviceJson != null) {
-                    pageView.entities.add(deviceJson)
-                }
+                pageView.entities.add(deviceJson)
 
-                if (!cartId.isNullOrBlank()) {
+                if (cartId.isNotBlank()) {
                     val cartJson = getCartContext(cartId)
                     if (cartJson != null) {
                         pageView.entities.add(cartJson)
@@ -300,20 +287,21 @@ object Snowplow {
         }
     }
 
-    suspend fun trackCartEvent(args: TrackCartEventArgs) {
+    fun trackCartEvent(args: TrackCartEventArgs) {
         val context = ApplicationCtx.get()
-        withContext(Dispatchers.IO) {
+
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val merchantUrl = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.GK_MERCHANT_URL) ?: ""
                 val pageUrl = "https://$merchantUrl/cart"
 
                 val tracker = SnowplowClient.getSnowplowClient(context)
-                if (tracker == null) return@withContext
+                if (tracker == null) return@launch
 
                 var cartId = args.cart_id
                 if (cartId.contains("gid://shopify/Cart/")) {
@@ -348,13 +336,14 @@ object Snowplow {
         }
     }
 
-    suspend fun trackCollectionsEvent(args: TrackCollectionsEventArgs) {
+    fun trackCollectionsEvent(args: TrackCollectionsEventArgs) {
         val context = ApplicationCtx.get()
-        withContext(Dispatchers.IO) {
+
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val merchantUrl = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.GK_MERCHANT_URL) ?: ""
@@ -363,7 +352,7 @@ object Snowplow {
                 } else ""
 
                 val tracker = SnowplowClient.getSnowplowClient(context)
-                if (tracker == null) return@withContext
+                if (tracker == null) return@launch
 
                 var cartId = args.cart_id
                 if (cartId.contains("gid://shopify/Cart/")) {
@@ -399,20 +388,21 @@ object Snowplow {
         }
     }
 
-    suspend fun trackOtherEvent(args: TrackOtherEventArgs? = null) {
+    fun trackOtherEvent(args: TrackOtherEventArgs? = null) {
         val context = ApplicationCtx.get()
-        withContext(Dispatchers.IO) {
+
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val merchantUrl = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.GK_MERCHANT_URL) ?: ""
                 val pageUrl = if (merchantUrl.isNotEmpty()) "https://$merchantUrl/cart" else ""
 
                 val tracker = SnowplowClient.getSnowplowClient(context)
-                if (tracker == null) return@withContext
+                if (tracker == null) return@launch
 
                 var cartId = args?.cart_id ?: ""
                 if (cartId.contains("gid://shopify/Cart/")) {
@@ -447,19 +437,20 @@ object Snowplow {
         }
     }
 
-    suspend fun sendCustomEventToSnowPlow(eventObject: Map<String, Any>) {
+    fun sendCustomEventToSnowPlow(eventObject: Map<String, Any>) {
         val context = ApplicationCtx.get()
-        withContext(Dispatchers.IO) {
+
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val mid = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_MERCHANT_ID) ?: ""
                 val env = KwikPassCache.getInstance(context).getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
 
                 val tracker = SnowplowClient.getSnowplowClient(context, env, mid)
-                if (tracker == null) return@withContext
+                if (tracker == null) return@launch
 
                 val environment = getEnvironment(context)
                 val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/structured/jsonschema/1-0-0"
@@ -494,15 +485,15 @@ object Snowplow {
         }
     }
 
-    suspend fun snowplowStructuredEvent(context: Context, args: StructuredProps) {
-        withContext(Dispatchers.IO) {
+    fun snowplowStructuredEvent(context: Context, args: StructuredProps) {
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             try {
                 val isTrackingEnabled = KwikPassCache.getInstance(context)
                     .getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-                if (!isTrackingEnabled) return@withContext
+                if (!isTrackingEnabled) return@launch
 
                 val tracker = SnowplowClient.getSnowplowClient(context)
-                if (tracker == null) return@withContext
+                if (tracker == null) return@launch
 
                 val environment = getEnvironment(context)
                 val schema = "iglu:${KwikPassConfig.getConfig(environment).schemaVendor}/structured/jsonschema/1-0-0"

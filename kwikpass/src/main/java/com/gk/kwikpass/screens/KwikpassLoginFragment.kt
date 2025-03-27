@@ -52,7 +52,9 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import com.gk.kwikpass.initializer.kwikpassInitializer
 import com.gk.kwikpass.screens.createaccount.CreateAccountData
+import com.gk.kwikpass.utils.CoroutineUtils
 import com.gk.kwikpass.utils.ModifierWrapper
+import kotlinx.coroutines.Dispatchers
 
 // Form state data class equivalent to React Native's LoginForm
 data class LoginFormState(
@@ -274,14 +276,10 @@ class KwikpassLoginFragment : Fragment() {
         kwikPassApi = KwikPassApi(requireContext())
         gson = Gson()
 
-        lifecycleScope.launch {
+        CoroutineUtils.coroutine.launch {
             try {
-                val merchantConfigString = cache?.getValue(KwikPassKeys.GK_MERCHANT_CONFIG)
-                println("Merchant Config from cache: ${merchantConfigString}")
-
-                val regex = Regex("""platform=([A-Za-z0-9]+)""")
-                val matchResult = merchantConfigString?.let { regex.find(it) }
-                merchantType = matchResult?.groups?.get(1)?.value.toString().toLowerCase()
+                val merchantTypeFromCahce = cache?.getValue(KwikPassKeys.GK_MERCHANT_TYPE)
+                merchantType = merchantTypeFromCahce.toString().toLowerCase()
                 println("MERCHANT TYPE FROM API $merchantType")
             } catch (e: Exception) {
                 println("Error getting merchant config: ${e.message}")
@@ -302,7 +300,7 @@ class KwikpassLoginFragment : Fragment() {
         }
 
         // Initialize Snowplow client
-        viewLifecycleOwner.lifecycleScope.launch {
+        CoroutineUtils.coroutine.launch(Dispatchers.IO) {
             val snowplowClientRes = SnowplowClient.getSnowplowClient(
                 ApplicationCtx.get(),
                 kwikpassInitializer.getEnvironment().toString(),
@@ -364,7 +362,7 @@ class KwikpassLoginFragment : Fragment() {
 
         // Handle send verification code
         val handleSendVerificationCode = { phone: String, notifications: Boolean ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     // Validate phone number before making API call
                     if (phone.length != 10 || !phone.all { it.isDigit() }) {
@@ -398,7 +396,7 @@ class KwikpassLoginFragment : Fragment() {
 
         // Handle verify OTP
         val handleVerifyOTP = { phone: String, otp: String ->
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.verifyCode(phone, otp)
@@ -518,7 +516,7 @@ class KwikpassLoginFragment : Fragment() {
         val handleCreateAccount = { accountData: CreateAccountData ->
             println("ACCOUNT CREATION DATA $accountData")
 
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.createUser(
@@ -578,7 +576,7 @@ class KwikpassLoginFragment : Fragment() {
         // Handle Shopify email submission
         val handleShopifyEmailSubmit = { email: String ->
             formState.shopifyEmail = email
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     loginViewModel.setLoading(true)
                     val result = kwikPassApi.shopifySendEmailVerificationCode(email)
@@ -603,7 +601,7 @@ class KwikpassLoginFragment : Fragment() {
 
         // Handle resend email OTP
         val handleResendEmailOTP = {
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.shopifySendEmailVerificationCode(formState.shopifyEmail)
@@ -626,7 +624,7 @@ class KwikpassLoginFragment : Fragment() {
 
         // Handle resend phone OTP
         val handleResendPhoneOTP = {
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.sendVerificationCode(formState.phone, true)
@@ -649,7 +647,7 @@ class KwikpassLoginFragment : Fragment() {
         // Handle Shopify email OTP verification
         val handleShopifyEmailOTPVerification = { email: String, otp: String ->
             println("EMAIL AND OTP FOR EMAIL VERIFICATION $email and $otp")
-            viewLifecycleOwner.lifecycleScope.launch {
+            CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.shopifyVerifyEmail(email.toString(), otp.toString())

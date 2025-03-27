@@ -54,18 +54,20 @@ class MainActivity : AppCompatActivity() {
         trackCollectionButton = findViewById(R.id.btnTrackCollection)
         trackCustomEventButton = findViewById(R.id.btnTrackCustomEvent)
 
-        // Initialize Kwikpass in a coroutine
-        lifecycleScope.launch {
-            try {
-                kwikpassInitializer.initialize(applicationContext, "12wyqc2guqmkrw6406j", "production", true)
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this@MainActivity,
-                    "Failed to initialize Kwikpass: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
-                e.printStackTrace()
-            }
+        try {
+            kwikpassInitializer.initialize(
+                applicationContext,
+                "12wyqc2guqmkrw6406j",
+                "production",
+                true
+            )
+        } catch (e: Exception) {
+            Toast.makeText(
+                this@MainActivity,
+                "Failed to initialize Kwikpass: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+            e.printStackTrace()
         }
 
         loginButton.setOnClickListener {
@@ -96,129 +98,121 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleTrackCart() {
-        lifecycleScope.launch {
-            try {
-                // Cart event parameters
-                val cartParams = Snowplow.TrackCartEventArgs(
-                    cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
-                )
+        try {
+            // Cart event parameters
+            val cartParams = Snowplow.TrackCartEventArgs(
+                cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
+            )
 
-                // Track cart event using Snowplow
-                Snowplow.trackCartEvent(cartParams)
-                
-                Toast.makeText(
-                    this@MainActivity,
-                    "Cart event tracked successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error in cart event tracking: ${e.message}")
-                Toast.makeText(
-                    this@MainActivity,
-                    "Error: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            // Track cart event using Snowplow
+            Snowplow.trackCartEvent(cartParams)
+
+            Toast.makeText(
+                this@MainActivity,
+                "Cart event tracked successfully",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in cart event tracking: ${e.message}")
+            Toast.makeText(
+                this@MainActivity,
+                "Error: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     private fun handleTrackCollection() {
-        lifecycleScope.launch {
-            try {
-                // Collection event parameters
-                val collectionParams = Snowplow.TrackCollectionsEventArgs(
-                    cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
-                    collection_id = "478302175522",
-                    name = "All Products",
-                    handle = "all-products"
-                )
+        try {
+            // Collection event parameters
+            val collectionParams = Snowplow.TrackCollectionsEventArgs(
+                cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
+                collection_id = "478302175522",
+                name = "All Products",
+                handle = "all-products"
+            )
 
-                // Track collection event using Snowplow
-                Snowplow.trackCollectionsEvent(collectionParams)
-                
-                Toast.makeText(
-                    this@MainActivity,
-                    "Collection event tracked successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error in collection event tracking: ${e.message}")
-                Toast.makeText(
-                    this@MainActivity,
-                    "Error: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            // Track collection event using Snowplow
+            Snowplow.trackCollectionsEvent(collectionParams)
+
+            Toast.makeText(
+                this@MainActivity,
+                "Collection event tracked successfully",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in collection event tracking: ${e.message}")
+            Toast.makeText(
+                this@MainActivity,
+                "Error: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     private fun handleAction() {
-        lifecycleScope.launch {
-            try {
-                // Product event parameters from provided JSON
-                val productParams = Snowplow.TrackProductEventArgs(
-                    cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
-                    product_id = "8141118832930",
-                    name = "April Ring",
-                    pageUrl = "https://sandbox-plus-gokwik.myshopify.com/products/april-ring-pearl",
-                    variant_id = "44554723066146",
-                    img_url = "https://cdn.shopify.com/s/files/1/0727/0216/5282/products/2015-04-20_Accessories_32_10022_21392.jpg?v=1677584146",
-                    price = "78.00",
-                    handle = "april-ring-pearl"
-                )
+        try {
+            // Product event parameters from provided JSON
+            val productParams = Snowplow.TrackProductEventArgs(
+                cart_id = "gid://shopify/Cart/Z2NwLWFzaWEtc291dGhlYXN0MTowMUpIUFFTOVY5RFZSUjlESjVLM01DUEU1NA?key=5cb9ac020696ca061c38d3f8f56b5bb7",
+                product_id = "8141118832930",
+                name = "April Ring",
+                pageUrl = "https://sandbox-plus-gokwik.myshopify.com/products/april-ring-pearl",
+                variant_id = "44554723066146",
+                img_url = "https://cdn.shopify.com/s/files/1/0727/0216/5282/products/2015-04-20_Accessories_32_10022_21392.jpg?v=1677584146",
+                price = "78.00",
+                handle = "april-ring-pearl"
+            )
 
-                // Track product event using Snowplow
-                Snowplow.trackProductEvent(productParams)
-                
-                Toast.makeText(
-                    this@MainActivity,
-                    "Product event tracked successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error in product event tracking: ${e.message}")
-                Toast.makeText(
-                    this@MainActivity,
-                    "Error: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            // Track product event using Snowplow
+            Snowplow.trackProductEvent(productParams)
+
+            Toast.makeText(
+                this@MainActivity,
+                "Product event tracked successfully",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in product event tracking: ${e.message}")
+            Toast.makeText(
+                this@MainActivity,
+                "Error: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
     private fun handleTrackCustomEvent() {
-        lifecycleScope.launch {
-            try {
-                // Custom event parameters
-                val customEventParams = Snowplow.StructuredProps(
-                    category = "login_modal",
-                    action = "click",
-                    label = "open_login_modal"
-                )
+        try {
+            // Custom event parameters
+            val customEventParams = Snowplow.StructuredProps(
+                category = "login_modal",
+                action = "click",
+                label = "open_login_modal"
+            )
 
-                // Convert StructuredProps to Map
-                val eventMap = mapOf(
-                    "category" to customEventParams.category,
-                    "action" to customEventParams.action,
-                    "label" to customEventParams.label,
-                )
+            // Convert StructuredProps to Map
+            val eventMap = mapOf(
+                "category" to customEventParams.category,
+                "action" to customEventParams.action,
+                "label" to customEventParams.label,
+            )
 
-                // Track custom event using Snowplow
-                Snowplow.sendCustomEventToSnowPlow(eventMap as Map<String, Any>)
-                
-                Toast.makeText(
-                    this@MainActivity,
-                    "Custom event tracked successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error in custom event tracking: ${e.message}")
-                Toast.makeText(
-                    this@MainActivity,
-                    "Error: ${e.message}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            // Track custom event using Snowplow
+            Snowplow.sendCustomEventToSnowPlow(eventMap as Map<String, Any>)
+
+            Toast.makeText(
+                this@MainActivity,
+                "Custom event tracked successfully",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error in custom event tracking: ${e.message}")
+            Toast.makeText(
+                this@MainActivity,
+                "Error: ${e.message}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 
@@ -297,7 +291,8 @@ class MainActivity : AppCompatActivity() {
                 showGender = false,
                 showDob = false
             ),
-            bannerImageStyle = ModifierWrapper("""
+            bannerImageStyle = ModifierWrapper(
+                """
                 {
                     "padding": {
                         "top": 0,
@@ -306,13 +301,16 @@ class MainActivity : AppCompatActivity() {
                     "height": 250,
                     "width": "fill"
                 }
-            """.trimIndent()),
-            imageContainerStyle = ModifierWrapper("""
+            """.trimIndent()
+            ),
+            imageContainerStyle = ModifierWrapper(
+                """
                 {
                     "padding": 0,
                     "width": "fill"
                 }
-            """.trimIndent()),
+            """.trimIndent()
+            ),
             inputProps = TextInputConfig(
 //                submitButtonStyle = mapOf(
 //                    "backgroundColor" to "#007AFF",
@@ -373,10 +371,11 @@ class MainActivity : AppCompatActivity() {
         val loginFragment = KwikpassLoginFragment.newInstance(
             config = config,
             callback = object : KwikpassCallback {
-                override fun onGuestLogin(){
+                override fun onGuestLogin() {
                     supportFragmentManager.popBackStack()
                     loginButton.visibility = View.VISIBLE
                 }
+
                 override fun onSuccess(data: MutableMap<String, Any?>?) {
                     println("SUCCESS LOGIN COMPLETE $data")
                     // Store user data in SharedPreferences
@@ -407,7 +406,8 @@ class MainActivity : AppCompatActivity() {
                     // Optionally show the login button again on critical errors
                     if (error.contains("Failed to initialize") ||
                         error.contains("Network error") ||
-                        error.contains("Authentication failed")) {
+                        error.contains("Authentication failed")
+                    ) {
                         loginButton.visibility = View.VISIBLE
                         supportFragmentManager.popBackStack()
                     }
