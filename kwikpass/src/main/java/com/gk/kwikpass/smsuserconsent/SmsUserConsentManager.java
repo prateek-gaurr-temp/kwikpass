@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import com.google.android.gms.auth.api.phone.SmsRetriever;
@@ -15,28 +17,59 @@ import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.Task;
 import com.google.android.gms.tasks.TaskCompletionSource;
 import com.google.android.gms.tasks.Tasks;
-import com.google.android.gms.tasks.OnCompleteListener;
-import com.google.android.gms.tasks.Task;
-import com.google.android.gms.tasks.TaskCompletionSource;
-import com.google.android.gms.tasks.Tasks;
 import androidx.activity.result.ActivityResultLauncher;
+
+import java.lang.ref.WeakReference;
 
 public class SmsUserConsentManager {
     private static final String TAG = "SmsUserConsentManager";
     public static final int SMS_CONSENT_REQUEST = 2;
+    
+    public enum ErrorCode {
+        NULL_ACTIVITY("1001", "Activity is null"),
+        SMS_RETRIEVER_ERROR("1002", "Failed to start SMS listener"),
+        NULL_BROADCAST_RECEIVER("1003", "Broadcast receiver is null"),
+        COULD_NOT_HANDLE_BROADCAST("1004", "Could not handle broadcast"),
+        REGISTRATION_ERROR("1005", "Failed to register broadcast receiver"),
+        MAX_RETRIES_REACHED("1006", "Maximum retry attempts reached"),
+        UNKNOWN_ERROR("1007", "An unknown error occurred");
 
-    private final Activity activity;
+        private final String code;
+        private final String message;
+
+        ErrorCode(String code, String message) {
+            this.code = code;
+            this.message = message;
+        }
+
+        public String getCode() {
+            return code;
+        }
+
+        public String getMessage() {
+            return message;
+        }
+    }
+
+    // Retry configuration
+    private static final int MAX_RETRIES = 3;
+    private static final long INITIAL_RETRY_DELAY_MS = 1000; // 1 second
+    private static final long MAX_RETRY_DELAY_MS = 10000; // 10 seconds
+    private int currentRetryCount = 0;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private final WeakReference<Activity> activityRef;
     private SmsBroadcastReceiver broadcastReceiver;
     private SmsConsentCallback callback;
     private ActivityResultLauncher<Intent> launcher;
 
     public interface SmsConsentCallback {
         void onSmsReceived(String sms);
-        void onError(String errorCode, String errorMessage);
+        void onError(ErrorCode errorCode, String errorMessage);
     }
 
     public SmsUserConsentManager(Activity activity, SmsConsentCallback callback, ActivityResultLauncher<Intent> launcher) {
-        this.activity = activity;
+        this.activityRef = new WeakReference<>(activity);
         this.callback = callback;
         this.launcher = launcher;
         Log.d(TAG, "SmsUserConsentManager initialized");
@@ -44,27 +77,62 @@ public class SmsUserConsentManager {
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     public void startSmsListener() throws SmsUserConsentException {
+        Activity activity = activityRef.get();
         if (activity == null) {
-            Log.e(TAG, "Activity is null");
+            Log.e(TAG, ErrorCode.NULL_ACTIVITY.getMessage());
             throw new SmsUserConsentException(
-                    Errors.NULL_ACTIVITY,
-                    "Could not start SMS listener, activity is null"
+                    ErrorCode.NULL_ACTIVITY,
+                    ErrorCode.NULL_ACTIVITY.getMessage()
             );
         }
 
         try {
             Log.d(TAG, "Starting SMS User Consent API");
-            SmsRetriever.getClient(activity).startSmsUserConsent(null)
-                    .addOnSuccessListener(aVoid -> {
-                        Log.d(TAG, "SMS User Consent API started successfully");
-                    })
-                    .addOnFailureListener(e -> {
-                        Log.e(TAG, "Failed to start SMS User Consent API", e);
-                        if (callback != null) {
-                            callback.onError(String.valueOf(Errors.SMS_RETRIEVER_ERROR), e.getMessage());
-                        }
-                    });
+            startSmsUserConsentWithRetry(activity);
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting SMS listener", e);
+            throw new SmsUserConsentException(
+                    ErrorCode.SMS_RETRIEVER_ERROR,
+                    ErrorCode.SMS_RETRIEVER_ERROR.getMessage() + ": " + e.getMessage()
+            );
+        }
+    }
 
+    private void startSmsUserConsentWithRetry(Activity activity) {
+        SmsRetriever.getClient(activity).startSmsUserConsent(null)
+                .addOnSuccessListener(aVoid -> {
+                    Log.d(TAG, "SMS User Consent API started successfully");
+                    currentRetryCount = 0; // Reset retry count on success
+                    registerBroadcastReceiver(activity);
+                })
+                .addOnFailureListener(e -> {
+                    Log.e(TAG, "Failed to start SMS User Consent API", e);
+                    if (currentRetryCount < MAX_RETRIES) {
+                        long delay = calculateRetryDelay();
+                        Log.d(TAG, "Retrying in " + delay + "ms (Attempt " + (currentRetryCount + 1) + "/" + MAX_RETRIES + ")");
+                        mainHandler.postDelayed(() -> {
+                            currentRetryCount++;
+                            startSmsUserConsentWithRetry(activity);
+                        }, delay);
+                    } else {
+                        Log.e(TAG, ErrorCode.MAX_RETRIES_REACHED.getMessage());
+                        if (callback != null) {
+                            callback.onError(ErrorCode.MAX_RETRIES_REACHED, 
+                                ErrorCode.MAX_RETRIES_REACHED.getMessage());
+                        }
+                    }
+                });
+    }
+
+    private long calculateRetryDelay() {
+        // Exponential backoff with jitter
+        long delay = Math.min(INITIAL_RETRY_DELAY_MS * (long) Math.pow(2, currentRetryCount), MAX_RETRY_DELAY_MS);
+        // Add jitter (random variation) to prevent thundering herd problem
+        return delay + (long) (Math.random() * 1000);
+    }
+
+    private void registerBroadcastReceiver(Activity activity) {
+        try {
             broadcastReceiver = new SmsBroadcastReceiver(activity, this);
             Log.d(TAG, "Registering broadcast receiver");
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -85,29 +153,27 @@ public class SmsUserConsentManager {
             }
             Log.d(TAG, "Broadcast receiver registered successfully");
         } catch (Exception e) {
-            Log.e(TAG, "Error starting SMS listener", e);
-            throw new SmsUserConsentException(
-                    Errors.SMS_RETRIEVER_ERROR,
-                    "Failed to start SMS listener: " + e.getMessage()
-            );
+            Log.e(TAG, "Error registering broadcast receiver", e);
+            if (callback != null) {
+                callback.onError(ErrorCode.REGISTRATION_ERROR, 
+                    ErrorCode.REGISTRATION_ERROR.getMessage() + ": " + e.getMessage());
+            }
         }
     }
 
     public void stopSmsListener() throws SmsUserConsentException {
+        Activity activity = activityRef.get();
         if (activity == null) {
-            Log.e(TAG, "Activity is null");
+            Log.e(TAG, ErrorCode.NULL_ACTIVITY.getMessage());
             throw new SmsUserConsentException(
-                    Errors.NULL_ACTIVITY,
-                    "Could not stop SMS listener, activity is null"
+                    ErrorCode.NULL_ACTIVITY,
+                    ErrorCode.NULL_ACTIVITY.getMessage()
             );
         }
 
         if (broadcastReceiver == null) {
-            Log.e(TAG, "Broadcast receiver is null");
-            throw new SmsUserConsentException(
-                    Errors.NULL_BROADCAST_RECEIVER,
-                    "Could not stop SMS listener, broadcastReceiver is null"
-            );
+            Log.d(TAG, "Broadcast receiver is already null, nothing to unregister");
+            return;
         }
 
         try {
@@ -118,8 +184,8 @@ public class SmsUserConsentManager {
         } catch (IllegalArgumentException e) {
             Log.e(TAG, "Error unregistering receiver", e);
             throw new SmsUserConsentException(
-                    Errors.NULL_BROADCAST_RECEIVER,
-                    "Could not stop SMS listener, broadcastReceiver is null"
+                    ErrorCode.NULL_BROADCAST_RECEIVER,
+                    ErrorCode.NULL_BROADCAST_RECEIVER.getMessage()
             );
         }
     }
@@ -131,18 +197,20 @@ public class SmsUserConsentManager {
             Log.d(TAG, "SMS callback triggered");
         } else {
             Log.e(TAG, "Callback is null");
+            // Only restart on error (null callback)
+            restartSmsListener();
         }
-        restartSmsListener();
     }
 
     public void handleError(SmsUserConsentException e) {
         Log.e(TAG, "Handling error: " + e.getMessage());
         if (callback != null) {
-            callback.onError(e.getCode().toString(), e.getMessage());
+            callback.onError(e.getErrorCode(), e.getMessage());
             Log.d(TAG, "Error callback triggered");
         } else {
             Log.e(TAG, "Callback is null");
         }
+        // Always restart on error
         restartSmsListener();
     }
 
@@ -153,8 +221,8 @@ public class SmsUserConsentManager {
         } else {
             Log.e(TAG, "Launcher is null");
             handleError(new SmsUserConsentException(
-                    Errors.COULD_NOT_HANDLE_BROADCAST,
-                    "Launcher is null"
+                    ErrorCode.COULD_NOT_HANDLE_BROADCAST,
+                    ErrorCode.COULD_NOT_HANDLE_BROADCAST.getMessage()
             ));
         }
     }

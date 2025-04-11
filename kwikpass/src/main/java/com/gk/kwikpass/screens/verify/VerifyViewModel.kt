@@ -59,8 +59,11 @@ class VerifyViewModel : ViewModel() {
                 }
             }
 
-            override fun onError(errorCode: String, errorMessage: String) {
-                Log.e(TAG, "SMS Error: $errorCode - $errorMessage")
+            override fun onError(errorCode: SmsUserConsentManager.ErrorCode, errorMessage: String) {
+                Log.e(TAG, "SMS Error: ${errorCode.getCode()} - $errorMessage")
+                _uiState.update { it.copy(
+                    errors = mapOf("otp" to errorMessage)
+                )}
             }
         }, launcher)
     }
@@ -71,6 +74,9 @@ class VerifyViewModel : ViewModel() {
             smsManager?.startSmsListener()
         } catch (e: Exception) {
             Log.e(TAG, "Error starting SMS listener", e)
+            _uiState.update { it.copy(
+                errors = mapOf("otp" to "Failed to start SMS listener: ${e.message}")
+            )}
         }
     }
 
@@ -85,9 +91,15 @@ class VerifyViewModel : ViewModel() {
                     smsManager?.handleSms(sms)
                 } else {
                     Log.e(TAG, "SMS message is null in activity result")
+                    _uiState.update { it.copy(
+                        errors = mapOf("otp" to "Failed to retrieve SMS message")
+                    )}
                 }
             } else {
                 Log.e(TAG, "Activity result not OK or data is null - ResultCode: $resultCode")
+                _uiState.update { it.copy(
+                    errors = mapOf("otp" to "Failed to retrieve SMS message")
+                )}
             }
         } else {
             Log.d(TAG, "Ignoring activity result with different request code: $requestCode")

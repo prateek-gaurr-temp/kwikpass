@@ -145,7 +145,7 @@ class LoginActivity : ComponentActivity() {
                                     },
                                     title = title,
                                     submitButtonText = submitButtonText,
-                                    errors = loginUiState.errors,
+//                                    errors = loginUiState.errors,
                                     isLoading = loginUiState.isLoading,
                                     onPhoneChange = { phone ->
                                         phoneNumber = phone

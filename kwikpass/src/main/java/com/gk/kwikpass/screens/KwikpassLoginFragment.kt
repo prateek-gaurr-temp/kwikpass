@@ -415,13 +415,14 @@ class KwikpassLoginFragment : Fragment() {
                         // Parse the nested structure
                         val responseMap = gson.fromJson(responseJson, Map::class.java)
                         if(merchantType == "shopify") {
-                            val data = responseMap["data"] as? Map<*, *>
-
-                            println("EXTRACTED DATA: $data")
+                            // Get the data from the nested structure
+                            val responseData = (responseMap["value"] as? Map<*, *>)?.get("data") as? Map<*, *>
+                            
+                            println("EXTRACTED DATA: $responseData")
 
                             // Handle multiple email case
-                            if (data?.containsKey("multipleEmail") == true) {
-                                val multipleEmailStr = data["multipleEmail"] as? String
+                            if (responseData?.containsKey("multipleEmail") == true) {
+                                val multipleEmailStr = responseData["multipleEmail"] as? String
                                 if (multipleEmailStr != null) {
                                     val emails = multipleEmailStr.split(",").map { email ->
                                         MultipleEmail(
@@ -429,17 +430,13 @@ class KwikpassLoginFragment : Fragment() {
                                             value = email.trim()
                                         )
                                     }
-
-                                    println("EMAILS FROM API: $emails")
                                     formViewModel.updateMultipleEmail(emails)
                                 }
+                                return@onSuccess
                             }
 
-                            println(" data?.get(\"emailRequired\") == true. ${data?.get("emailRequired") == true}")
-                            println("data?.get(\"email\") == null. ${data?.get("email") == null}")
-
                             // Handle email required case
-                            if (data?.get("emailRequired") == true && data["email"] == null) {
+                            if (responseData?.get("emailRequired") == true && responseData["email"] == null) {
                                 verifyViewModel.setLoading(false)
                                 formViewModel.setNewUser(true)
                                 formState.otp = ""
@@ -449,17 +446,17 @@ class KwikpassLoginFragment : Fragment() {
 
                             // Create cleaned data with required fields
                             val cleanedData = mutableMapOf<String, Any?>()
-                            cleanedData["shopifyCustomerId"] = data?.get("shopifyCustomerId")
-                            cleanedData["email"] = data?.get("email")
+                            cleanedData["shopifyCustomerId"] = responseData?.get("shopifyCustomerId")
+                            cleanedData["email"] = responseData?.get("email")
                             cleanedData["phone"] = phone
 
-                            val password = data?.get("password")
+                            val password = responseData?.get("password")
                             if(password != null) {
                                 cleanedData["password"] = password
                             }
 
-                            val token = data?.get("multipassToken")
-                            if(token !== null){
+                            val token = responseData?.get("multipassToken")
+                            if(token != null) {
                                 cleanedData["multipassToken"] = token
                             }
 
@@ -470,13 +467,12 @@ class KwikpassLoginFragment : Fragment() {
                             callback?.onSuccess(cleanedData)
                             verifyViewModel.setLoading(false)
                             return@onSuccess
-                        } else{
-                            val data = (responseMap["data"] as? Map<String, Any?>)?.toMutableMap()
-
-                            println("data?.containsKey(\"emailRequired\") == true ${data?.containsKey("emailRequired")}")
-
-                            if(data?.containsKey("emailRequired") == true){
-                                if(data["emailRequired"] == true && data["email"] == null){
+                        } else {
+                            // Handle non-shopify case
+                            val data = (responseMap["value"] as? Map<String, Any?>)?.get("data") as? Map<String, Any?>
+                            
+                            if(data?.containsKey("emailRequired") == true) {
+                                if(data["emailRequired"] == true && data["email"] == null) {
                                     formViewModel.setNewUser(true)
                                     formState.otp = ""
                                     formViewModel.setOtpSent(false)
@@ -485,16 +481,19 @@ class KwikpassLoginFragment : Fragment() {
                                 }
                             }
 
-                            if(data?.containsKey("email") == true && data["email"]!==null){
-                                if(data?.containsKey("phone") == false){
-                                    data["phone"] = formState.phone
+                            if(data?.containsKey("email") == true && data["email"] != null) {
+                                // Create a mutable copy of the data map
+                                val mutableData = data.toMutableMap()
+                                
+                                if(!mutableData.containsKey("phone")) {
+                                    mutableData["phone"] = formState.phone
                                 }
 
-                                println("DATA FOR CUSTOM MERCHANTS $data")
-                                cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(data))
+                                println("DATA FOR CUSTOM MERCHANTS $mutableData")
+                                cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(mutableData))
                                 formViewModel.setSuccess(true)
                                 verifyViewModel.setSuccess(true)
-                                callback?.onSuccess(data)
+                                callback?.onSuccess(mutableData)
                                 verifyViewModel.setLoading(false)
                             }
                             return@onSuccess
@@ -693,9 +692,6 @@ class KwikpassLoginFragment : Fragment() {
                 }
             }
         }
-
-        println("formState.isNewUser ${formState.isNewUser}")
-
 
         Surface(
             modifier = Modifier.fillMaxSize(),

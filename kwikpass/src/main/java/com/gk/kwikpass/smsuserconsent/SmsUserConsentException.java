@@ -1,14 +1,14 @@
 package com.gk.kwikpass.smsuserconsent;
 
 public class SmsUserConsentException extends Exception {
-    private final Errors code;
+    private final SmsUserConsentManager.ErrorCode errorCode;
 
-    public SmsUserConsentException(Errors code, String message) {
+    public SmsUserConsentException(SmsUserConsentManager.ErrorCode errorCode, String message) {
         super(message);
-        this.code = code;
+        this.errorCode = errorCode;
     }
 
-    public Errors getCode() {
-        return code;
+    public SmsUserConsentManager.ErrorCode getErrorCode() {
+        return errorCode;
     }
 } 

@@ -2,14 +2,15 @@ package com.gk.kwikpass.api
 
 import android.app.Application
 import android.content.Context
-import android.util.Log
 import com.gk.kwikpass.api.shopify.KwikpassShopify
-import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassKeys
+import com.gk.kwikpass.config.KwikPassEnvironment
+import com.gk.kwikpass.config.KwikPassMerchantType
+import com.gk.kwikpass.config.KwikPassUserState
 import com.gk.kwikpass.initializer.kwikpassInitializer
+import com.gk.kwikpass.snowplow.Snowplow
 import com.google.gson.Gson
-//import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -30,17 +31,21 @@ data class ApiErrorResponse(
     val response: Response<*>? = null
 )
 
-data class InitializeSdkArgs(
-    val mid: String,
-    val environment: String,
-    val isSnowplowTrackingEnabled: Boolean = true,
-    val application: Application
-)
-
 class KwikPassApi(private val context: Context) {
-    private val cache = KwikPassCache.getInstance(context)
+    @Volatile
     private var apiService: KwikPassApiService? = null
+    private val cache = KwikPassCache.getInstance(context)
     private val gson = Gson()
+    
+    private val apiServiceLock = Any()
+
+    private fun getOrCreateApiService(environment: KwikPassEnvironment, mid: String): KwikPassApiService {
+        return apiService ?: synchronized(apiServiceLock) {
+            apiService ?: KwikPassHttpClient.getApiService(environment.toString().lowercase(), mid).also { 
+                apiService = it 
+            }
+        }
+    }
 
     private fun handleApiError(error: Throwable): ApiErrorResponse {
         return when (error) {
@@ -77,98 +82,16 @@ class KwikPassApi(private val context: Context) {
         }
     }
 
-    suspend fun initializeSdk(args: InitializeSdkArgs): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val (mid, environment, isSnowplowTrackingEnabled, application) = args
-
-            ApplicationCtx.instance = application
-
-            // Initialize HTTP client and create API service
-            apiService = KwikPassHttpClient.createService<KwikPassApiService>(environment.toString(), mid.toString())
-            println("initialize: ${environment} ${mid}" )
-
-            // Set initial cache values in parallel
-            coroutineScope {
-                listOf(
-                    async { cache.setValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED, isSnowplowTrackingEnabled.toString()) },
-                    async { cache.setValue(KwikPassKeys.GK_ENVIRONMENT, environment) },
-                    async { cache.setValue(KwikPassKeys.GK_MERCHANT_ID, mid) }
-                ).map { it.await() }
-            }
-
-            // Get cached values in parallel
-            val (requestId, accessToken, checkoutAccessToken) = coroutineScope {
-                val requestIdDeferred = async { cache.getValue(KwikPassKeys.GK_REQUEST_ID) }
-                val accessTokenDeferred = async { cache.getValue(KwikPassKeys.GK_ACCESS_TOKEN) }
-                val checkoutTokenDeferred = async { cache.getValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN) }
-                Triple(
-                    requestIdDeferred.await(),
-                    accessTokenDeferred.await(),
-                    checkoutTokenDeferred.await()
-                )
-            }
-
-            // Set tokens if they exist
-            accessToken?.let {
-                KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.GK_ACCESS_TOKEN to it))
-            }
-            checkoutAccessToken?.let {
-                KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.CHECKOUT_ACCESS_TOKEN to it))
-            }
-
-            // Get browser token
-            getBrowserToken()
-
-            // Initialize merchant config
-            val merchantConfig = initializeMerchant(mid, environment)
-
-            // Store merchant type and URL
-            merchantConfig.platform?.let {
-                cache.setValue(KwikPassKeys.GK_MERCHANT_TYPE, it.lowercase())
-            }
-            merchantConfig.host?.let {
-                cache.setValue(KwikPassKeys.GK_MERCHANT_URL, getHostName(it))
-            }
-
-            // Store merchant config
-            cache.setValue(KwikPassKeys.GK_MERCHANT_CONFIG, gson.toJson(merchantConfig))
-
-            // Initialize Snowplow client (you'll need to implement this)
-            // initializeSnowplowClient(args)
-
-            // Get device info
-//            val deviceInfo = AppUtils.getDeviceInfo(context)
-//            cache.setValue(KwikPassKeys.GK_DEVICE_INFO, gson.toJson(deviceInfo))
-
-            // Set request ID if it exists
-            requestId?.let {
-                KwikPassHttpClient.setHeaders(
-                    mapOf(
-                        KwikPassKeys.KP_REQUEST_ID to it,
-                        KwikPassKeys.GK_REQUEST_ID to it
-                    )
-                )
-            }
-
-            Result.success("Initialization Successful")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     private suspend fun getBrowserToken() {
         try {
-            val environment = kwikpassInitializer.getEnvironment()
-            val mid = kwikpassInitializer.getMerchantId()
+            val environment = KwikPassEnvironment.fromString(kwikpassInitializer.getEnvironment() as String)
+            val mid = kwikpassInitializer.getMerchantId() ?: ""
 
             println("ENVIRONMENT $environment MERCHANT $mid")
             
-            // Get the API service from KwikPassHttpClient
-            if (apiService == null) {
-                apiService = KwikPassHttpClient.getApiService(environment.toString(), mid.toString())
-            }
-
-            val response = apiService?.getBrowserAuth()
+            val service = getOrCreateApiService(environment, mid)
+            val response = service.getBrowserAuth()
+            
             println("RESPONSE FROM GET BROWSER TOKEN ${response?.isSuccessful}")
 
             if (response?.isSuccessful == true) {
@@ -202,21 +125,22 @@ class KwikPassApi(private val context: Context) {
         }
     }
 
-    private suspend fun initializeMerchant(mid: String, environment: String): MerchantConfig {
-        try {
-            val response = apiService?.getMerchantConfig(mid)
-            if (response?.isSuccessful == true) {
-                val merchantConfig = response.body()?.data
-                if (merchantConfig != null) {
-                    return merchantConfig
-                }
-            }
-            throw Exception("Failed to fetch merchant configuration")
-        } catch (e: Exception) {
-            e.printStackTrace()
-            throw e
-        }
-    }
+//    private suspend fun initializeMerchant(mid: String, environment: String): MerchantConfig {
+//        try {
+//            val service = getOrCreateApiService(environment, mid)
+//            val response = service.getMerchantConfig(mid)
+//            if (response?.isSuccessful == true) {
+//                val merchantConfig = response.body()?.data
+//                if (merchantConfig != null) {
+//                    return merchantConfig
+//                }
+//            }
+//            throw Exception("Failed to fetch merchant configuration")
+//        } catch (e: Exception) {
+//            e.printStackTrace()
+//            throw e
+//        }
+//    }
 
     suspend fun sendVerificationCode(phoneNumber: String, notifications: Boolean): Result<Any> {
         return try {
@@ -224,8 +148,39 @@ class KwikPassApi(private val context: Context) {
             cache.setValue(KwikPassKeys.GK_NOTIFICATION_ENABLED, notifications.toString())
             cache.setValue(KwikPassKeys.GK_USER_PHONE, phoneNumber)
 
+            // Send Snowplow events for phone number tracking
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "login_modal",
+                    "action" to "click",
+                    "label" to "phone_number_filled",
+                    "property" to "phone_number",
+                    "value" to (phoneNumber.toIntOrNull() ?: 0)
+                )
+            )
+
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "login_modal",
+                    "action" to "click",
+                    "label" to "phone_number_entered",
+                    "property" to "phone_number",
+                    "value" to (phoneNumber.toIntOrNull() ?: 0)
+                )
+            )
+
             val response = apiService?.sendVerificationCode(SendVerificationCodeRequest(phoneNumber))
+
             if(response?.isSuccessful == true) {
+                Snowplow.sendCustomEventToSnowPlow(
+                    mapOf(
+                        "category" to "login_modal",
+                        "action" to "automated",
+                        "label" to "otp_sent_successfully",
+                        "property" to "phone_number",
+                        "value" to (phoneNumber.toIntOrNull() ?: 0)
+                    )
+                )
                 Result.success(response.body()!!)
             } else {
                 val error = handleApiError(retrofit2.HttpException(response!!))
@@ -301,25 +256,28 @@ class KwikPassApi(private val context: Context) {
         return try {
             getBrowserToken()
             
+            // Send Snowplow event for OTP submission
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "login_modal",
+                    "action" to "automated",
+                    "label" to "submit_otp",
+                    "property" to "phone_number",
+                    "value" to (phoneNumber.toIntOrNull() ?: 0)
+                )
+            )
+
             val response = apiService?.verifyCode(VerifyCodeRequest(phoneNumber, code.toInt()))
             if (response?.isSuccessful == true) {
                 val data = response.body()?.data
                 println("DATA FROM RESPONSE $data")
 
                 if (data != null) {
-                    // Send Snowplow event
-//                    sendCustomEventToSnowPlow(
-//                        category = "login_screen",
-//                        action = "logged_in",
-//                        label = "otp_verified",
-//                        property = "kwik_pass",
-//                        value = phoneNumber.toLong()
-//                    )
-
-                    val merchantType = cache.getValue(KwikPassKeys.GK_MERCHANT_TYPE)
+                    val merchantType = KwikPassMerchantType.fromString(cache.getValue(KwikPassKeys.GK_MERCHANT_TYPE) ?: "")
                     println("MERCHANT TYPE AT TIME OF VERIFY CODE $merchantType")
+                    
                     // Handle Shopify merchant type
-                    if (merchantType == "shopify") {
+                    if (merchantType is KwikPassMerchantType.SHOPIFY) {
                         // Set access token
                         data.token?.let { token ->
                             KwikPassHttpClient.setHeaders(mapOf(KwikPassKeys.GK_ACCESS_TOKEN to token))
@@ -340,16 +298,10 @@ class KwikPassApi(private val context: Context) {
                             data.kpToken = null
                         }
 
-                        // Get customer intelligence data
-//                        val customerIntelligenceData = getCustomerIntelligence()
-//                        if (customerIntelligenceData != null) {
-//                            data.affluence = customerIntelligenceData
-//                        }
-
                         val shopify = KwikpassShopify()
 
                         // Handle disabled state
-                        if (data.state == "DISABLED") {
+                        if (KwikPassUserState.fromString(data.state ?: "") is KwikPassUserState.DISABLED) {
                             val multipassResult = shopify.getShopifyMultipassToken(
                                 phoneNumber,
                                 data?.email.toString(),
@@ -376,6 +328,18 @@ class KwikPassApi(private val context: Context) {
                                             )
                                         }
                                     }
+
+                                    // Send Snowplow event for successful login
+                                    Snowplow.sendCustomEventToSnowPlow(
+                                        mapOf(
+                                            "category" to "login_modal",
+                                            "action" to "logged_in",
+                                            "label" to "phone_Number_logged_in",
+                                            "property" to "phone_number",
+                                            "value" to (phoneNumber.toIntOrNull() ?: 0)
+                                        )
+                                    )
+
                                     Result.success(multipassResponse)
                                 },
                                 onFailure = { e ->
@@ -395,21 +359,37 @@ class KwikPassApi(private val context: Context) {
                             )
 
                             println("MULTIPASS RESPONSE $multipassResult")
+
+                            // Send Snowplow event for successful login
+                            Snowplow.sendCustomEventToSnowPlow(
+                                mapOf(
+                                    "category" to "login_modal",
+                                    "action" to "logged_in",
+                                    "label" to "phone_Number_logged_in",
+                                    "property" to "phone_number",
+                                    "value" to (phoneNumber.toIntOrNull() ?: 0)
+                                )
+                            )
+
                             return Result.success(multipassResult)
-//                            multipassResult.fold(
-//                                onSuccess = { multipassResponse ->
-//                                    Result.success(multipassResponse)
-//                                },
-//                                onFailure = { e ->
-//                                    Result.failure(e)
-//                                }
-//                            )
                         }
 
                         // Store user data
                         val userData = data.copy(phone = phoneNumber)
                         cache.setValue(KwikPassKeys.GK_VERIFIED_USER, gson.toJson(userData))
                         println("userData before return $userData")
+
+                        // Send Snowplow event for successful login
+                        Snowplow.sendCustomEventToSnowPlow(
+                            mapOf(
+                                "category" to "login_modal",
+                                "action" to "logged_in",
+                                "label" to "phone_Number_logged_in",
+                                "property" to "phone_number",
+                                "value" to (phoneNumber.toIntOrNull() ?: 0)
+                            )
+                        )
+
                         return Result.success(response.body()!!)
                     }
 
@@ -423,12 +403,6 @@ class KwikPassApi(private val context: Context) {
                         data.coreToken = null
                     }
 
-                    // Get customer intelligence data
-//                    val customerIntelligenceData = getCustomerIntelligence()
-//                    if (customerIntelligenceData != null) {
-//                        data.affluence = customerIntelligenceData
-//                    }
-
                     // Validate token and login user
                     validateUserToken()
                     val loginResponse = loginKpUser()
@@ -438,6 +412,18 @@ class KwikPassApi(private val context: Context) {
                         }
 
                         println("RESPONSE AFTER LOGIN IS SUCCESSFUL $response")
+
+                        // Send Snowplow event for successful login
+                        Snowplow.sendCustomEventToSnowPlow(
+                            mapOf(
+                                "category" to "login_modal",
+                                "action" to "logged_in",
+                                "label" to "phone_Number_logged_in",
+                                "property" to "phone_number",
+                                "value" to (phoneNumber.toIntOrNull() ?: 0)
+                            )
+                        )
+
                         return Result.success(response)
                     }
 
@@ -494,9 +480,19 @@ class KwikPassApi(private val context: Context) {
 
     suspend fun checkout(): Result<Boolean> {
         try {
-            val userJson = cache.getValue(KwikPassKeys.GK_VERIFIED_USER) ?: "{}"
-            val user = gson.fromJson(userJson, Map::class.java)
-            val phone = user["phone"]?.toString() ?: "0"
+            // Get phone number from cache
+            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
+
+            // Send Snowplow event for logout
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "logged_in_page",
+                    "action" to "logged_out",
+                    "label" to "logout_button_click",
+                    "property" to "phone_number",
+                    "value" to (phoneNumber?.toIntOrNull() ?: 0)
+                )
+            )
 
             // Clear headers
             KwikPassHttpClient.clearHeaders()
@@ -504,15 +500,16 @@ class KwikPassApi(private val context: Context) {
             // Clear cache
             cache.clearCache()
 
-
-            println("CHECKOUT CALLED")
-
-            // Reinitialize SDK
-            val env = cache.getValue(KwikPassKeys.GK_ENVIRONMENT) ?: "sandbox"
-            val mid = cache.getValue(KwikPassKeys.GK_MERCHANT_ID) ?: ""
-            val isSnowplowTrackingEnabled = cache.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED) == "true"
-
-            kwikpassInitializer.initialize(context, mid, env, isSnowplowTrackingEnabled)
+            // Clear all stored values
+            cache.removeValue(KwikPassKeys.GK_ACCESS_TOKEN)
+            cache.removeValue(KwikPassKeys.CHECKOUT_ACCESS_TOKEN)
+            cache.removeValue(KwikPassKeys.GK_KP_TOKEN)
+            cache.removeValue(KwikPassKeys.GK_VERIFIED_USER)
+            cache.removeValue(KwikPassKeys.GK_REQUEST_ID)
+            cache.removeValue(KwikPassKeys.KP_REQUEST_ID)
+            cache.removeValue(KwikPassKeys.GK_AUTH_TOKEN)
+            cache.removeValue(KwikPassKeys.GK_USER_PHONE)
+            cache.removeValue(KwikPassKeys.GK_NOTIFICATION_ENABLED)
 
             return Result.success(true)
         } catch (e: Exception) {
@@ -534,6 +531,9 @@ class KwikPassApi(private val context: Context) {
             if (customerId == null || password == null) {
                 return@withContext Result.failure(Exception("Missing required parameters"))
             }
+
+            // Get phone number from cache for event tracking
+            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
 
             // Create form data similar to qs.stringify in React Native
             val formData = mapOf(
@@ -561,6 +561,17 @@ class KwikPassApi(private val context: Context) {
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .build()
 
+            // Send Snowplow event for account activation
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "login_modal",
+                    "action" to "automated",
+                    "label" to "account_activated",
+                    "property" to "phone_number",
+                    "value" to (phoneNumber?.toIntOrNull() ?: 0)
+                )
+            )
+
             val response = client.newCall(request).execute()
             println("response from activate user account $response")
 
@@ -584,17 +595,18 @@ class KwikPassApi(private val context: Context) {
             getBrowserToken()
             
             // Get phone number from cache
-//            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
+            val phoneNumber = cache.getValue(KwikPassKeys.GK_USER_PHONE)
             
             // Send Snowplow event
-            // TODO: Implement Snowplow event tracking
-            // sendCustomEventToSnowPlow(
-            //     category = "login_screen",
-            //     action = "click",
-            //     label = "email_filled",
-            //     property = "email",
-            //     value = phoneNumber?.toLong() ?: 0L
-            // )
+            Snowplow.sendCustomEventToSnowPlow(
+                mapOf(
+                    "category" to "login_modal",
+                    "action" to "click",
+                    "label" to "email_filled",
+                    "property" to "email",
+                    "value" to (phoneNumber?.toIntOrNull() ?: 0)
+                )
+            )
 
             val response = apiService?.sendShopifyEmailVerificationCode(
                 ShopifyEmailVerificationRequest(email)
@@ -659,13 +671,16 @@ class KwikPassApi(private val context: Context) {
 
                 // Send Snowplow event
                 // TODO: Implement Snowplow event tracking
-                // sendCustomEventToSnowPlow(
-                //     category = "login_screen",
-                //     action = "logged_in",
-                //     label = "otp_verified",
-                //     property = "kwik_pass",
-                //     value = userData["phone"]?.toString()?.toLongOrNull() ?: 0L
-                // )
+                val phone = cache.getValue(KwikPassKeys.GK_USER_PHONE)
+                Snowplow.sendCustomEventToSnowPlow(
+                    mapOf(
+                        "category" to "login_modal",
+                        "action" to "logged_in",
+                        "label" to "otp_verified",
+                        "property" to "phone_number",
+                        "value" to (phone?.toIntOrNull() ?: 0)
+                    )
+                )
 
                 return Result.success(response.body()!!)
             }

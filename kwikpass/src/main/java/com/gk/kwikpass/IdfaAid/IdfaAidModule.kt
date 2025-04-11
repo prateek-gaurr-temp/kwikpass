@@ -1,49 +1,53 @@
 package com.gk.kwikpass.IdfaAid
 
 import android.content.Context
-import android.util.Log
 import com.google.android.gms.ads.identifier.AdvertisingIdClient
 import com.google.android.gms.common.GooglePlayServicesNotAvailableException
 import com.google.android.gms.common.GooglePlayServicesRepairableException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 class IdfaAidModule(private val context: Context) {
-    private val TAG = "IdfaAidModule"
+    private val logger = IdfaLogger.getInstance()
 
-    data class AdvertisingInfo(
-        val id: String?,
-        val isAdTrackingLimited: Boolean
-    )
+    sealed class AdvertisingInfoResult {
+        data class Success(
+            val id: String,
+            val isAdTrackingLimited: Boolean
+        ) : AdvertisingInfoResult()
 
-    suspend fun getAdvertisingInfo(): AdvertisingInfo = withContext(Dispatchers.IO) {
+        data class Error(
+            val message: String,
+            val isAdTrackingLimited: Boolean = true
+        ) : AdvertisingInfoResult()
+    }
+
+    fun getAdvertisingInfo(): AdvertisingInfoResult {
         try {
             val adInfo = AdvertisingIdClient.getAdvertisingIdInfo(context)
             
             if (adInfo != null) {
                 if (adInfo.isLimitAdTrackingEnabled) {
                     // User has opted out of ad tracking
-                    Log.d(TAG, "User has opted out of ad tracking")
-                    AdvertisingInfo(adInfo.id, true)
+                    logger.i("User has opted out of ad tracking")
+                    return AdvertisingInfoResult.Success(adInfo.id ?: "", true)
                 } else {
                     // User has allowed ad tracking
-                    Log.d(TAG, "User has allowed ad tracking")
-                    AdvertisingInfo(adInfo.id, false)
+                    logger.i("User has allowed ad tracking")
+                    return AdvertisingInfoResult.Success(adInfo.id ?: "", false)
                 }
             } else {
                 // No advertising info available
-                Log.w(TAG, "No advertising info available")
-                AdvertisingInfo(null, true)
+                logger.w("No advertising info available")
+                return AdvertisingInfoResult.Error("No advertising info available")
             }
         } catch (e: GooglePlayServicesNotAvailableException) {
-            Log.e(TAG, "Google Play Services not available: ${e.message}")
-            AdvertisingInfo(null, true)
+            logger.e("Google Play Services not available: ${e.message}")
+            return AdvertisingInfoResult.Error("Google Play Services not available: ${e.message}")
         } catch (e: GooglePlayServicesRepairableException) {
-            Log.e(TAG, "Google Play Services needs repair: ${e.message}")
-            AdvertisingInfo(null, true)
+            logger.e("Google Play Services needs repair: ${e.message}")
+            return AdvertisingInfoResult.Error("Google Play Services needs repair: ${e.message}")
         } catch (e: Exception) {
-            Log.e(TAG, "Error getting advertising ID: ${e.message}")
-            AdvertisingInfo(null, true)
+            logger.e("Error getting advertising ID: ${e.message}")
+            return AdvertisingInfoResult.Error("Error getting advertising ID: ${e.message}")
         }
     }
 

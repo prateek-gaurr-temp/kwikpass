@@ -2,27 +2,48 @@ package com.gk.kwikpass.config
 
 import android.content.Context
 import android.content.SharedPreferences
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import java.util.LinkedHashMap
 
 class KwikPassCache private constructor(context: Context) {
-    private val cache: MutableMap<String, String> = mutableMapOf()
-    private val prefs: SharedPreferences
+    private val cache: LinkedHashMap<String, String>
+    private val prefs: SharedPreferences =
+        context.getSharedPreferences(PREF_FILE_NAME, Context.MODE_PRIVATE)
+    private val maxCacheSize: Int = 100 // Maximum number of items in cache
 
     init {
-        prefs = context.getSharedPreferences(PREF_FILE_NAME, Context.MODE_PRIVATE)
+        // Initialize LRU cache with access order
+        cache = object : LinkedHashMap<String, String>(maxCacheSize, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?): Boolean {
+                return size > maxCacheSize
+            }
+        }
+        // Load initial data from SharedPreferences
+        loadInitialData()
+    }
+
+    private fun loadInitialData() {
+        try {
+            val allPrefs = prefs.all
+            allPrefs.forEach { (key, value) ->
+                if (value is String) {
+                    cache[key] = value
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     /**
      * Retrieves a value from the cache or SharedPreferences.
      */
-    suspend fun getValue(key: String): String? = withContext(Dispatchers.IO) {
+    fun getValue(key: String): String? {
         // Check if value is in cache
-        cache[key]?.let { return@withContext it }
+        cache[key]?.let { return it }
 
         // If not in cache, fetch from SharedPreferences
-        return@withContext try {
-        prefs.getString(key, null)?.also {
+        return try {
+            prefs.getString(key, null)?.also {
                 cache[key] = it // Store in cache
             }
         } catch (e: Exception) {
@@ -34,7 +55,7 @@ class KwikPassCache private constructor(context: Context) {
     /**
      * Sets a value in both cache and SharedPreferences.
      */
-    suspend fun setValue(key: String, value: String) = withContext(Dispatchers.IO) {
+    fun setValue(key: String, value: String) {
         try {
             // Update cache
             cache[key] = value
@@ -53,14 +74,14 @@ class KwikPassCache private constructor(context: Context) {
      * Clears the in-memory cache.
      */
     fun clearCache() {
-        println("CHACHE CLEAR FUNCTION CALLED")
+        println("CACHE CLEAR FUNCTION CALLED")
         cache.clear()
     }
 
     /**
      * Removes a value from both cache and SharedPreferences.
      */
-    suspend fun removeValue(key: String) = withContext(Dispatchers.IO) {
+    fun removeValue(key: String) {
         try {
             // Remove from cache
             cache.remove(key)
@@ -89,4 +110,4 @@ class KwikPassCache private constructor(context: Context) {
             }
         }
     }
-} 
+}

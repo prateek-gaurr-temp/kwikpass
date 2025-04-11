@@ -5,6 +5,7 @@ import com.gk.kwikpass.config.KwikPassCache
 import com.gk.kwikpass.config.KwikPassKeys
 import com.gk.kwikpass.initializer.ApplicationCtx
 import com.gk.kwikpass.initializer.kwikpassInitializer
+import com.gk.kwikpass.snowplow.Snowplow
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -102,13 +103,15 @@ class KwikpassShopify {
                 }
 
                 // Send Snowplow event
-//                sendCustomEventToSnowPlow(
-//                    category = "login_screen",
-//                    action = "logged_in",
-//                    label = "shopify_logged_in",
-//                    property = "kwik_pass",
-//                    value = phone.toLong()
-//                )
+                Snowplow.sendCustomEventToSnowPlow(
+                    mapOf(
+                        "category" to "sso_login",
+                        "action" to "logged_in",
+                        "label" to "checkout_sso_logged_in",
+                        "property" to "phone_number",
+                        "value" to (phone.toIntOrNull() ?: 0)
+                    )
+                )
 
                 return@withContext Result.success(response.body()!!)
             }

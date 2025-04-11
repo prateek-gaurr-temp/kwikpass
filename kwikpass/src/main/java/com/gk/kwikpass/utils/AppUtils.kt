@@ -3,7 +3,9 @@ package com.gk.kwikpass.utils
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.BatteryManager
 import android.os.Build
+import android.provider.Settings
 import android.telephony.TelephonyManager
 import android.util.DisplayMetrics
 import android.view.WindowManager
@@ -35,22 +37,25 @@ object AppUtils {
             val telephonyManager =
                 context.getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
             val batteryManager =
-                context.getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+                context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
 
             val idfaAidModule: IdfaAidModule = IdfaAidModule.getInstance(context)
-            val adId = idfaAidModule.getAdvertisingInfo()?.id?.toString() ?: ""
+            val adId = when (val adInfo = idfaAidModule.getAdvertisingInfo()) {
+                is IdfaAidModule.AdvertisingInfoResult.Success -> adInfo.id
+                is IdfaAidModule.AdvertisingInfoResult.Error -> ""
+            }
 
             return mapOf(
                 KwikPassKeys.GK_DEVICE_MODEL to Build.MODEL,
                 KwikPassKeys.GK_APP_DOMAIN to context.packageName,
                 KwikPassKeys.GK_OPERATING_SYSTEM to "Android ${Build.VERSION.RELEASE}",
-                KwikPassKeys.GK_DEVICE_ID to android.provider.Settings.Secure.getString(
+                KwikPassKeys.GK_DEVICE_ID to Settings.Secure.getString(
                     context.contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID
+                    Settings.Secure.ANDROID_ID
                 ),
-                KwikPassKeys.GK_DEVICE_UNIQUE_ID to android.provider.Settings.Secure.getString(
+                KwikPassKeys.GK_DEVICE_UNIQUE_ID to Settings.Secure.getString(
                     context.contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID
+                    Settings.Secure.ANDROID_ID
                 ),
                 KwikPassKeys.GK_APP_VERSION to getHostAppVersion(),
                 KwikPassKeys.GK_APP_VERSION_CODE to context.packageManager.getPackageInfo(
@@ -59,7 +64,7 @@ object AppUtils {
                 ).longVersionCode.toString(),
                 KwikPassKeys.GK_SCREEN_RESOLUTION to "${metrics.widthPixels}x${metrics.heightPixels}",
                 KwikPassKeys.GK_CARRIER_INFO to (telephonyManager.networkOperatorName ?: ""),
-                KwikPassKeys.GK_BATTERY_STATUS to batteryManager.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                KwikPassKeys.GK_BATTERY_STATUS to batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     .toString(),
                 KwikPassKeys.GK_LANGUAGE to Locale.getDefault().toString(),
                 KwikPassKeys.GK_TIME_ZONE to TimeZone.getDefault().id.toString(),
