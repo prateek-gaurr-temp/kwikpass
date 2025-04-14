@@ -84,7 +84,7 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 
     // snowplow
-    implementation("com.snowplowanalytics:snowplow-android-tracker:6.0.+")
+    implementation("com.snowplowanalytics:snowplow-android-tracker:6.0.3")
 
     implementation("com.google.android.gms:play-services-auth:20.2.0")
     implementation("com.google.android.gms:play-services-auth-api-phone:18.0.1")

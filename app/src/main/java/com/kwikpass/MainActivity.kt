@@ -73,18 +73,18 @@ class MainActivity : AppCompatActivity() {
         trackCustomEventButton = findViewById(R.id.btnTrackCustomEvent)
 
         try {
+//            kwikpassInitializer.initialize(
+//                applicationContext,
+//                "19x8g5js05wj",
+//                "sandbox",
+//                true
+//            )
             kwikpassInitializer.initialize(
                 applicationContext,
-                "19x8g5js05wj",
-                "sandbox",
+                "12wyqc2guqmkrw6406j",
+                "production",
                 true
             )
-            //kwikpassInitializer.initialize(
-            //    applicationContext,
-            //    "12wyqc2guqmkrw6406j",
-            //    "production",
-            //    true
-            //)
         } catch (e: Exception) {
             Toast.makeText(
                 this@MainActivity,

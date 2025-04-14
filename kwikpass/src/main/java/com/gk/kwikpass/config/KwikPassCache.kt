@@ -2,7 +2,10 @@ package com.gk.kwikpass.config
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import java.util.LinkedHashMap
+import java.util.Date
+import java.util.concurrent.TimeUnit
 
 class KwikPassCache private constructor(context: Context) {
     private val cache: LinkedHashMap<String, String>
@@ -93,6 +96,39 @@ class KwikPassCache private constructor(context: Context) {
             }
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    fun setSnowplowUserId(userId: String) {
+        val timestamp = System.currentTimeMillis().toString()
+        setValue("gkSnowplowUserId", userId)
+        setValue("gkSnowplowUserIdTimestamp", timestamp)
+    }
+
+    fun getSnowplowUserId(): String? {
+        try {
+            val userId = getValue("gkSnowplowUserId")
+            val timestamp = getValue("gkSnowplowUserIdTimestamp")
+
+            if (userId == null || timestamp == null) {
+                return null
+            }
+
+            val storedTime = timestamp.toLong()
+            val currentTime = System.currentTimeMillis()
+            val hours24 = TimeUnit.HOURS.toMillis(24)
+            val timeDifference = TimeUnit.MILLISECONDS.toHours(currentTime - storedTime)
+
+            Log.d("KwikPassCache", "TIME DIFFERENCE ======= $timeDifference")
+
+            if (timeDifference > 24) {
+                return null
+            }
+
+            return userId
+        } catch (e: Exception) {
+            Log.e("KwikPassCache", "Error getting stored Snowplow user ID:", e)
+            return null
         }
     }
 

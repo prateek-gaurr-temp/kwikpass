@@ -33,11 +33,6 @@ object KwikPassHttpClient {
         return apiService!!
     }
 
-    fun getKwikPassClient(environment: String, mid: String): KwikPassHttpClient {
-        getClient(environment, mid)
-        return this
-    }
-
     @Synchronized
     private fun createRetrofit(environment: String, mid: String): Retrofit {
         val config = KwikPassConfig.getConfig(environment)

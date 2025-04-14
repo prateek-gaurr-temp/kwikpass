@@ -48,6 +48,7 @@ object kwikpassInitializer {
                 setupMerchantConfiguration()
                 initializeDeviceTracking()
 
+
                 Log.i(TAG, "KwikPass SDK Initialized Successfully")
                 Log.i(TAG, "Merchant ID: $merchantId")
                 Log.i(TAG, "Environment: $environment")
@@ -69,6 +70,8 @@ object kwikpassInitializer {
         applicationContext = context
         ApplicationCtx.init(context)
         val cache = KwikPassCache.getInstance(context)
+        SnowplowClient.initializeSnowplowClient(context, environment, merchantId)
+
 
         this.merchantId = merchantId
         this.environment = environment
@@ -180,7 +183,8 @@ object kwikpassInitializer {
             Log.d(TAG, "Device Info Details: $deviceInfoDetails")
 
             val cache = KwikPassCache.getInstance(applicationContext!!)
-            cache.setValue(KwikPassKeys.GK_DEVICE_INFO, deviceInfoDetails.toString())
+            val jsonString = gson.toJson(deviceInfoDetails)
+            cache.setValue(KwikPassKeys.GK_DEVICE_INFO, jsonString)
         }
     }
 

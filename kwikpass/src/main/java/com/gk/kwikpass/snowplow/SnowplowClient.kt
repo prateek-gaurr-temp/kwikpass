@@ -9,7 +9,9 @@ import com.snowplowanalytics.snowplow.configuration.EmitterConfiguration
 import com.snowplowanalytics.snowplow.configuration.NetworkConfiguration
 import com.snowplowanalytics.snowplow.configuration.SessionConfiguration
 import com.snowplowanalytics.snowplow.configuration.TrackerConfiguration
+import com.snowplowanalytics.snowplow.controller.SubjectController
 import com.snowplowanalytics.snowplow.controller.TrackerController
+import com.snowplowanalytics.snowplow.ecommerce.entities.EcommerceUserEntity
 import com.snowplowanalytics.snowplow.emitter.BufferOption
 import com.snowplowanalytics.snowplow.network.HttpMethod
 import com.snowplowanalytics.snowplow.network.RequestCallback
@@ -54,11 +56,8 @@ class SnowplowClient {
         ) {
             withContext(Dispatchers.IO) {
                 val collectorUrl = KwikPassConfig.getConfig(environment).snowplowUrl
-//                val cache = KwikPassCache.getInstance(context)
+                val cache = KwikPassCache.getInstance(context)
 
-                println("collectorUrl $collectorUrl")
-
-//                val shopDomain = cache.getValue(KwikPassKeys.GK_MERCHANT_URL)
                 val appId = mid.toString()
 
                 val networkConfig = NetworkConfiguration(
@@ -82,7 +81,7 @@ class SnowplowClient {
                     .lifecycleAutotracking(true)
                     .screenViewAutotracking(false)
                     .screenContext(true)
-                    .exceptionAutotracking(true)
+                    .exceptionAutotracking(false)
                     .installAutotracking(true)
                     .diagnosticAutotracking(false)
 
@@ -100,8 +99,15 @@ class SnowplowClient {
                     sessionConfig
                 )
 
-                // val uuid = generateUUID()
-                // snowplowTracker?.ecommerce?.setEcommerceUser(EcommerceUserEntity(uuid))
+                var snowplowUserId = cache.getSnowplowUserId()
+                if (snowplowUserId == null) {
+                    val uuid = generateUUID()
+                    snowplowUserId = uuid
+                    cache.setSnowplowUserId(uuid)
+                }
+
+                val subject : SubjectController? = snowplowTracker?.subject
+                subject?.domainUserId= snowplowUserId
             }
         }
 
@@ -110,8 +116,8 @@ class SnowplowClient {
             environment: String? = null,
             mid: String? = null
         ): TrackerController? {
-            val CacheInstance = KwikPassCache.getInstance(context)
-            val snowplowTrackingEnabled = CacheInstance.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED)
+            val cacheInstance = KwikPassCache.getInstance(context)
+            val snowplowTrackingEnabled = cacheInstance.getValue(KwikPassKeys.IS_SNOWPLOW_TRACKING_ENABLED)
 
             if (snowplowTrackingEnabled == "false") {
                 return snowplowTracker

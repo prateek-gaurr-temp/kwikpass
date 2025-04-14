@@ -143,13 +143,15 @@ object Snowplow {
         
         val deviceInfo = try {
             if (!deviceInfoJson.isNullOrEmpty()) {
-                JSONObject(deviceInfoJson)
+                val gson = com.google.gson.Gson()
+                val type = object : com.google.gson.reflect.TypeToken<Map<String, Any>>() {}.type
+                gson.fromJson<Map<String, Any>>(deviceInfoJson, type)
             } else {
-                JSONObject()
+                emptyMap()
             }
         } catch (e: Exception) {
             e.printStackTrace()
-            JSONObject()
+            emptyMap()
         }
 
         val advertisingInfo = IdfaAidModule.getInstance(context).getAdvertisingInfo()
@@ -159,13 +161,13 @@ object Snowplow {
         }
 
         return createContext("user_device/jsonschema/1-0-0", mapOf(
-            "device_id" to deviceInfo.optString(KwikPassKeys.GK_DEVICE_UNIQUE_ID, ""),
+            "device_id" to (deviceInfo[KwikPassKeys.GK_DEVICE_UNIQUE_ID] as? String ?: ""),
             "android_ad_id" to androidAdId,
             "ios_ad_id" to "",
             "fcm_token" to (deviceFCM ?: "").toString(),
-            "app_domain" to deviceInfo.optString(KwikPassKeys.GK_APP_DOMAIN, ""),
+            "app_domain" to (deviceInfo[KwikPassKeys.GK_APP_DOMAIN] as? String ?: ""),
             "device_type" to "android",
-            "app_version" to deviceInfo.optString(KwikPassKeys.GK_APP_VERSION, "")
+            "app_version" to (deviceInfo[KwikPassKeys.GK_APP_VERSION] as? String ?: "")
         ))
     }
 
