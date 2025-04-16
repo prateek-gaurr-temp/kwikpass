@@ -162,6 +162,22 @@ class VerifyViewModel : ViewModel() {
         _uiState.update { it.copy(isSuccess = success) }
     }
 
+    fun setError(field: String, error: String?) {
+        _uiState.update { currentState ->
+            currentState.copy(
+                errors = if (error == null) {
+                    currentState.errors - field
+                } else {
+                    currentState.errors + (field to error)
+                }
+            )
+        }
+    }
+
+    fun clearErrors() {
+        _uiState.update { it.copy(errors = emptyMap()) }
+    }
+
     override fun onCleared() {
         super.onCleared()
         resendTimer?.cancel()

@@ -225,6 +225,7 @@ private fun OtpInput(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     val cellSize = 60.dp
+    val hasError = error != null && error.isNotEmpty()
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
@@ -241,7 +242,6 @@ private fun OtpInput(
             repeat(cellCount) { index ->
                 val isFocused = value.length == index
                 val char = value.getOrNull(index)?.toString() ?: ""
-                val hasError = error != null && value.length == cellCount
 
                 Box(
                     modifier = Modifier
@@ -294,12 +294,14 @@ private fun OtpInput(
             enabled = enabled
         )
 
-        error?.let {
+        if (hasError) {
             Text(
-                text = it,
+                text = error!!,
                 color = Color.Red,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp)
+                modifier = Modifier
+                    .padding(start = 8.dp, top = 4.dp)
+                    .fillMaxWidth()
             )
         }
     }

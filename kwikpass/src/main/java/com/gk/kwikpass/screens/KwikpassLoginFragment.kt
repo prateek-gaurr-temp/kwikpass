@@ -55,6 +55,7 @@ import com.gk.kwikpass.screens.createaccount.CreateAccountData
 import com.gk.kwikpass.utils.CoroutineUtils
 import com.gk.kwikpass.utils.ModifierWrapper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.update
 
 // Form state data class equivalent to React Native's LoginForm
 data class LoginFormState(
@@ -273,7 +274,7 @@ class KwikpassLoginFragment : Fragment() {
         println("LOGIN FRAGMENT LOADED")
         val context = ApplicationCtx.get()
         cache = KwikPassCache.getInstance(context)
-        kwikPassApi = KwikPassApi(requireContext())
+        kwikPassApi = KwikPassApi(ApplicationCtx.get())
         gson = Gson()
 
         CoroutineUtils.coroutine.launch {
@@ -398,6 +399,7 @@ class KwikpassLoginFragment : Fragment() {
         val handleVerifyOTP = { phone: String, otp: String ->
             CoroutineUtils.coroutine.launch(Dispatchers.IO) {
                 try {
+                    verifyViewModel.clearErrors() // Clear any existing errors
                     verifyViewModel.setLoading(true)
                     val result = kwikPassApi.verifyCode(phone, otp)
                     shouldResetOtp = true
@@ -499,13 +501,13 @@ class KwikpassLoginFragment : Fragment() {
                             return@onSuccess
                         }
                     }.onFailure { error ->
-                        formViewModel.setError("otp", error.message)
+                        verifyViewModel.setError("otp", error.message)
                         callback?.onError(error.message ?: "Failed to verify OTP")
-                        verifyViewModel.setLoading(false)
                     }
                 } catch (e: Exception) {
-                    formViewModel.setError("otp", e.message)
+                    verifyViewModel.setError("otp", e.message)
                     callback?.onError(e.message ?: "Failed to verify OTP")
+                } finally {
                     verifyViewModel.setLoading(false)
                 }
             }
@@ -681,11 +683,11 @@ class KwikpassLoginFragment : Fragment() {
                             callback?.onSuccess(userData as MutableMap<String, Any?>?)
                         }
                     }.onFailure { error ->
-                        formViewModel.setError("shopifyOTP", error.message)
+                        verifyViewModel.setError("shopifyOTP", error.message)
                         callback?.onError(error.message ?: "Failed to verify email OTP")
                     }
                 } catch (e: Exception) {
-                    formViewModel.setError("shopifyOTP", e.message)
+                    verifyViewModel.setError("shopifyOTP", e.message)
                     callback?.onError(e.message ?: "Failed to verify email OTP")
                 } finally {
                     verifyViewModel.setLoading(false)
